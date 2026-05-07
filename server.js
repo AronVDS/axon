@@ -8,6 +8,9 @@ const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'axon2026';
 const WAITLIST_FILE = path.join(__dirname, 'data', 'waitlist.json');
 
+fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
+if (!fs.existsSync(WAITLIST_FILE)) fs.writeFileSync(WAITLIST_FILE, '[]', 'utf8');
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
