@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Axon — Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-0: oklch(0.16 0.02 252);
+    --bg-1: oklch(0.20 0.025 252);
+    --bg-2: oklch(0.24 0.03 252);
+    --line: oklch(0.32 0.025 252);
+    --line-soft: oklch(0.26 0.022 252);
+    --fg-0: oklch(0.97 0.005 252);
+    --fg-1: oklch(0.82 0.015 252);
+    --fg-2: oklch(0.62 0.02 252);
+    --fg-3: oklch(0.48 0.02 252);
+    --accent: oklch(0.85 0.22 145);
+    --accent-bright: oklch(0.92 0.22 140);
+    --accent-deep: oklch(0.65 0.22 148);
+    --accent-glow: oklch(0.85 0.22 145 / 0.2);
+    --warn: oklch(0.78 0.16 60);
+    --danger: oklch(0.65 0.2 25);
+    --font-display: 'Space Grotesk', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg-0);
+    color: var(--fg-1);
+    font-family: var(--font-display);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  .topbar {
+    background: oklch(0.16 0.02 252 / 0.9);
+    border-bottom: 1px solid var(--line-soft);
+    backdrop-filter: blur(12px);
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .topbar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--fg-0);
+    letter-spacing: -0.01em;
+  }
+  .topbar-logo svg { width: 20px; height: 20px; color: var(--accent-bright); }
+  .topbar-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--fg-3);
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 4px 10px;
+    border-radius: 100px;
+  }
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .btn-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    color: var(--fg-1);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .btn-refresh:hover { border-color: var(--accent-deep); color: var(--accent-bright); }
+  .btn-refresh svg { width: 13px; height: 13px; }
+
+  .main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 48px 32px;
+  }
+
+  .page-head {
+    margin-bottom: 40px;
+  }
+  .page-head h1 {
+    font-size: 28px;
+    font-weight: 500;
+    color: var(--fg-0);
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+  }
+  .page-head p {
+    color: var(--fg-3);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+  .stat-card {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 24px;
+  }
+  .stat-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--fg-3);
+    margin-bottom: 8px;
+  }
+  .stat-value {
+    font-size: 32px;
+    font-weight: 500;
+    color: var(--fg-0);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .stat-value.accent { color: var(--accent-bright); }
+
+  .table-wrap {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .table-header h2 {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--fg-0);
+    letter-spacing: -0.01em;
+  }
+  .search-input {
+    background: var(--bg-0);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 14px;
+    color: var(--fg-0);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    width: 220px;
+    transition: border-color 0.15s ease;
+  }
+  .search-input::placeholder { color: var(--fg-3); }
+  .search-input:focus { outline: none; border-color: var(--accent-deep); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  thead th {
+    padding: 12px 24px;
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--fg-3);
+    border-bottom: 1px solid var(--line-soft);
+    background: oklch(0.18 0.02 252 / 0.5);
+    font-weight: 400;
+  }
+  tbody tr {
+    border-bottom: 1px solid var(--line-soft);
+    transition: background 0.15s ease;
+  }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: oklch(0.20 0.025 252 / 0.5); }
+  td {
+    padding: 16px 24px;
+    font-size: 14px;
+    color: var(--fg-1);
+    vertical-align: middle;
+  }
+  td.name { color: var(--fg-0); font-weight: 500; }
+  td.email {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--fg-2);
+  }
+  td.date {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--fg-3);
+  }
+  td.num {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--fg-3);
+    width: 48px;
+  }
+  .btn-delete {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--fg-3);
+    cursor: pointer;
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: all 0.15s ease;
+  }
+  .btn-delete:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+    background: oklch(0.65 0.2 25 / 0.08);
+  }
+
+  .empty-state {
+    padding: 64px 24px;
+    text-align: center;
+    color: var(--fg-3);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .loading {
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--fg-3);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    animation: blink 1.4s ease-in-out infinite;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .export-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    background: oklch(0.85 0.22 145 / 0.12);
+    border: 1px solid var(--accent-deep);
+    color: var(--accent-bright);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    text-decoration: none;
+  }
+  .export-btn:hover { background: oklch(0.85 0.22 145 / 0.2); }
+  .export-btn svg { width: 13px; height: 13px; }
+
+  @media (max-width: 720px) {
+    .stats-row { grid-template-columns: 1fr 1fr; }
+    .table-header { flex-direction: column; gap: 12px; align-items: flex-start; }
+    .search-input { width: 100%; }
+    td.date { display: none; }
+    thead th.th-date { display: none; }
+    .topbar { padding: 14px 20px; }
+    .main { padding: 32px 20px; }
+  }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-logo">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M3 12 L9 6 L9 10 L15 10 L15 6 L21 12 L15 18 L15 14 L9 14 L9 18 Z"/>
+      </svg>
+      AXON
+      <span class="topbar-badge">Admin</span>
+    </div>
+    <div class="topbar-right">
+      <button class="btn-refresh" onclick="loadSignups()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M13.5 8a5.5 5.5 0 1 1-1-3.2M13.5 2v3h-3"/>
+        </svg>
+        Vernieuwen
+      </button>
+      <a href="/" class="btn-refresh">← Terug naar site</a>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="page-head">
+      <h1>Wachtlijst inschrijvingen</h1>
+      <p id="last-updated">Laden…</p>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Totaal ingeschreven</div>
+        <div class="stat-value accent" id="stat-total">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Vandaag nieuw</div>
+        <div class="stat-value" id="stat-today">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Deze week nieuw</div>
+        <div class="stat-value" id="stat-week">—</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-header">
+        <h2>Alle inschrijvingen</h2>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <input class="search-input" type="search" id="search" placeholder="Zoek op naam of e-mail…" oninput="filterTable()" />
+          <button class="export-btn" onclick="exportCSV()">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M8 2v8M5 7l3 3 3-3M2 11v1a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1"/>
+            </svg>
+            CSV
+          </button>
+        </div>
+      </div>
+      <div id="table-container">
+        <div class="loading">Gegevens ophalen…</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allSignups = [];
+
+    function formatDate(iso) {
+      return new Intl.DateTimeFormat('nl-BE', {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      }).format(new Date(iso));
+    }
+
+    function isToday(iso) {
+      const d = new Date(iso);
+      const now = new Date();
+      return d.toDateString() === now.toDateString();
+    }
+
+    function isThisWeek(iso) {
+      const d = new Date(iso);
+      const now = new Date();
+      const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+      return d >= weekAgo;
+    }
+
+    function updateStats(signups) {
+      document.getElementById('stat-total').textContent = signups.length;
+      document.getElementById('stat-today').textContent = signups.filter(s => isToday(s.signedUpAt)).length;
+      document.getElementById('stat-week').textContent = signups.filter(s => isThisWeek(s.signedUpAt)).length;
+    }
+
+    function renderTable(signups) {
+      const container = document.getElementById('table-container');
+      if (signups.length === 0) {
+        container.innerHTML = '<div class="empty-state">Nog geen inschrijvingen</div>';
+        return;
+      }
+      const rows = signups.slice().reverse().map((s, i) => `
+        <tr data-id="${s.id}" data-name="${s.name.toLowerCase()}" data-email="${s.email}">
+          <td class="num">${signups.length - i}</td>
+          <td class="name">${escHtml(s.name)}</td>
+          <td class="email">${escHtml(s.email)}</td>
+          <td class="date">${formatDate(s.signedUpAt)}</td>
+          <td><button class="btn-delete" onclick="deleteSignup(${s.id}, this)">Verwijder</button></td>
+        </tr>
+      `).join('');
+      container.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Naam</th>
+              <th>E-mail</th>
+              <th class="th-date">Datum</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function filterTable() {
+      const q = document.getElementById('search').value.toLowerCase();
+      const rows = document.querySelectorAll('tbody tr');
+      rows.forEach(row => {
+        const name = row.dataset.name || '';
+        const email = row.dataset.email || '';
+        row.style.display = (!q || name.includes(q) || email.includes(q)) ? '' : 'none';
+      });
+    }
+
+    async function loadSignups() {
+      document.getElementById('last-updated').textContent = 'Laden…';
+      try {
+        const res = await fetch('/api/admin/signups');
+        if (!res.ok) throw new Error('Fetch failed');
+        allSignups = await res.json();
+        updateStats(allSignups);
+        renderTable(allSignups);
+        document.getElementById('last-updated').textContent =
+          'Laatste update: ' + new Intl.DateTimeFormat('nl-BE', { hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(new Date());
+      } catch {
+        document.getElementById('table-container').innerHTML =
+          '<div class="empty-state">Kon gegevens niet laden. Vernieuw de pagina.</div>';
+        document.getElementById('last-updated').textContent = 'Fout bij laden';
+      }
+    }
+
+    async function deleteSignup(id, btn) {
+      if (!confirm('Weet je zeker dat je deze inschrijving wilt verwijderen?')) return;
+      btn.disabled = true;
+      btn.textContent = '…';
+      try {
+        const res = await fetch(`/api/admin/signups/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error();
+        await loadSignups();
+      } catch {
+        btn.disabled = false;
+        btn.textContent = 'Verwijder';
+        alert('Verwijderen mislukt. Probeer opnieuw.');
+      }
+    }
+
+    function exportCSV() {
+      if (allSignups.length === 0) return;
+      const header = 'id,naam,email,datum\n';
+      const rows = allSignups.map(s =>
+        `${s.id},"${s.name.replace(/"/g,'""')}","${s.email}","${s.signedUpAt}"`
+      ).join('\n');
+      const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `axon-wachtlijst-${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    loadSignups();
+  </script>
+</body>
+</html>
