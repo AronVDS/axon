@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8" />
+<title>Axon — Dashboard Preview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #06070b; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: #ecedf0; -webkit-font-smoothing: antialiased; }
+  input, button, select, textarea { font-family: inherit; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .screen-nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px;
+    background: rgba(6,7,11,0.9); backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .screen-nav-logo {
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 800; letter-spacing: .16em; color: #4ade80; font-size: 15px;
+    text-shadow: 0 0 16px rgba(74,222,128,0.35);
+    text-decoration: none;
+  }
+  .screen-tabs {
+    display: flex; gap: 4px;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px; padding: 4px;
+  }
+  .screen-tab {
+    padding: 8px 16px; border-radius: 7px; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; letter-spacing: 0.01em;
+    background: transparent; color: #6b7180; transition: all .18s;
+  }
+  .screen-tab.active { background: rgba(74,222,128,0.15); color: #4ade80; border: 1px solid rgba(74,222,128,0.25); }
+  .screen-tab:hover:not(.active) { color: #a8aebb; background: rgba(255,255,255,0.04); }
+  .back-link {
+    font-size: 12px; color: #6b7180; text-decoration: none; letter-spacing: .04em;
+    display: flex; align-items: center; gap: 6px; transition: color .15s;
+  }
+  .back-link:hover { color: #a8aebb; }
+  .screen-content { padding-top: 58px; min-height: 100vh; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+/* ── Design tokens ── */
+const GREEN = '#4ade80';
+const COLORS = {
+  green:  { tone:'#4ade80', soft:'rgba(74,222,128,0.14)',  border:'rgba(74,222,128,0.28)',  glow:'rgba(74,222,128,0.10)' },
+  blue:   { tone:'#60a5fa', soft:'rgba(96,165,250,0.14)',  border:'rgba(96,165,250,0.28)',  glow:'rgba(96,165,250,0.08)' },
+  orange: { tone:'#fb923c', soft:'rgba(251,146,60,0.14)',  border:'rgba(251,146,60,0.28)',  glow:'rgba(251,146,60,0.08)' },
+  purple: { tone:'#c084fc', soft:'rgba(192,132,252,0.14)', border:'rgba(192,132,252,0.28)', glow:'rgba(192,132,252,0.08)' },
+};
+const glass = {
+  background: 'linear-gradient(180deg, rgba(20,22,30,0.60), rgba(15,17,25,0.60))',
+  backdropFilter: 'blur(20px) saturate(140%)',
+  border: '1px solid rgba(255,255,255,0.07)',
+};
+
+/* ── API helper ── */
+async function callOrchestrator(task) {
+  const res = await fetch('/api/orchestrate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data.result;
+}
+
+/* ── Spinner ── */
+const Spinner = ({ dark }) => (
+  <span style={{
+    display: 'inline-block', width: 14, height: 14, flexShrink: 0,
+    border: `2px solid ${dark ? 'rgba(6,18,10,0.25)' : 'rgba(255,255,255,0.15)'}`,
+    borderTopColor: dark ? '#06120a' : '#ecedf0',
+    borderRadius: '50%',
+    animation: 'spin 0.7s linear infinite',
+  }} />
+);
+
+/* ── Shared atoms ── */
+const Logo = ({ size = 36 }) => (
+  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+    <div style={{
+      width:size, height:size, borderRadius:size*0.3,
+      background:'radial-gradient(circle at 30% 25%, rgba(74,222,128,0.55), transparent 60%), linear-gradient(180deg,#0e1a14,#0a0f0c)',
+      border:'1px solid rgba(74,222,128,0.3)', display:'grid', placeItems:'center', flexShrink:0,
+      boxShadow:'0 10px 30px -10px rgba(74,222,128,0.5)',
+    }}>
+      <svg width={size*0.5} height={size*0.5} viewBox="0 0 24 24" fill="none">
+        <path d="M4 19 L12 5 L20 19" stroke={GREEN} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M8 19 L16 19" stroke={GREEN} strokeWidth="2.2" strokeLinecap="round"/>
+        <circle cx="12" cy="12" r="1.7" fill={GREEN}/>
+      </svg>
+    </div>
+    <div style={{ display:'flex', flexDirection:'column', lineHeight:1 }}>
+      <span style={{ fontWeight:800, letterSpacing:'.16em', color:GREEN, fontSize:size*0.5, textShadow:'0 0 16px rgba(74,222,128,0.35)' }}>AXON</span>
+      <span style={{ fontSize:size*0.28, color:'#6b7180', letterSpacing:'.06em', marginTop:4, fontWeight:500 }}>uw AI Chief of Staff</span>
+    </div>
+  </div>
+);
+
+const LangToggle = () => (
+  <div style={{ display:'inline-flex', padding:3, borderRadius:999, border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.02)', fontSize:12, fontWeight:700, letterSpacing:'.04em' }}>
+    <span style={{ padding:'5px 12px', borderRadius:999, background:'rgba(74,222,128,0.16)', color:GREEN, border:'1px solid rgba(74,222,128,0.25)' }}>NL</span>
+    <span style={{ padding:'5px 12px', color:'#6b7180', cursor:'pointer' }}>FR</span>
+  </div>
+);
+
+const Avatar = ({ initials='LV', size=36 }) => (
+  <span style={{ width:size, height:size, borderRadius:'50%', background:'linear-gradient(135deg,#4ade80,#1f7a44)', color:'#06120a', fontWeight:800, fontSize:size*0.36, display:'grid', placeItems:'center', flexShrink:0 }}>{initials}</span>
+);
+
+const IconBtn = ({ children, dot }) => (
+  <button style={{ width:42, height:42, borderRadius:12, border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.018)', color:'#a8aebb', display:'inline-flex', alignItems:'center', justifyContent:'center', position:'relative', cursor:'pointer' }}>
+    {children}
+    {dot && <span style={{ position:'absolute', top:9, right:10, width:8, height:8, borderRadius:'50%', background:GREEN, boxShadow:'0 0 0 2px #0a0a0f' }}/>}
+  </button>
+);
+
+const TopBar = () => (
+  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 32px 24px' }}>
+    <Logo size={40} />
+    <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+      <LangToggle />
+      <IconBtn dot>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
+      </IconBtn>
+      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'6px 14px 6px 6px', border:'1px solid rgba(255,255,255,0.08)', borderRadius:999, background:'rgba(255,255,255,0.02)' }}>
+        <Avatar />
+        <div style={{ display:'flex', flexDirection:'column', lineHeight:1.15 }}>
+          <span style={{ fontSize:14, fontWeight:600 }}>Lucas Vermeiren</span>
+          <span style={{ fontSize:11.5, color:'#6b7180' }}>Brouwerij De Hooge</span>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+const Frame = ({ children, style = {} }) => (
+  <div style={{
+    minHeight:'100vh',
+    background:`radial-gradient(900px 700px at 80% -10%, rgba(74,222,128,0.09), transparent 60%), radial-gradient(700px 600px at -10% 110%, rgba(96,165,250,0.05), transparent 55%), #0a0a0f`,
+    color:'#ecedf0', fontSize:16, ...style,
+  }}>
+    {children}
+  </div>
+);
+
+/* ── Chat bubble ── */
+const Bubble = ({ side, children, small, error }) => (
+  <div style={{ display:'flex', gap:12, alignItems:'flex-end', maxWidth:800, marginLeft:side==='me'?'auto':0, flexDirection:side==='me'?'row-reverse':'row', animation:'fadeIn .25s ease' }}>
+    <div style={{
+      width:34, height:34, borderRadius:'50%', display:'grid', placeItems:'center', fontWeight:800, fontSize:12, flexShrink:0,
+      background: side==='ai' ? 'radial-gradient(circle at 30% 25%, rgba(74,222,128,0.5), transparent 60%), #0e1a14' : 'linear-gradient(135deg,#4ade80,#1f7a44)',
+      color: side==='ai' ? GREEN : '#06120a',
+      border: side==='ai' ? '1px solid rgba(74,222,128,0.4)' : 'none',
+    }}>{side==='ai' ? 'A' : 'LV'}</div>
+    <div style={{
+      padding:'12px 16px', borderRadius:18, fontSize:15, lineHeight:1.6,
+      maxWidth: small ? 420 : 600, whiteSpace:'pre-wrap', wordBreak:'break-word',
+      border:'1px solid rgba(255,255,255,0.07)',
+      ...(error
+        ? { background:'rgba(251,146,60,0.06)', borderColor:'rgba(251,146,60,0.3)', color:'#fbcfaa' }
+        : side==='ai'
+          ? { background:'linear-gradient(180deg, #181b26, #14161f)', borderLeft:'3px solid '+GREEN, borderTopLeftRadius:6 }
+          : { background:'linear-gradient(180deg, rgba(74,222,128,0.16), rgba(74,222,128,0.06))', borderColor:'rgba(74,222,128,0.25)', color:'#eafff1', borderTopRightRadius:6 }
+      ),
+    }}>
+      {children}
+    </div>
+  </div>
+);
+
+/* ── Loading bubble ── */
+const ThinkingBubble = () => (
+  <div style={{ display:'flex', gap:12, alignItems:'flex-end', animation:'fadeIn .25s ease' }}>
+    <div style={{ width:34, height:34, borderRadius:'50%', display:'grid', placeItems:'center', fontWeight:800, fontSize:12, flexShrink:0, background:'radial-gradient(circle at 30% 25%, rgba(74,222,128,0.5), transparent 60%), #0e1a14', color:GREEN, border:'1px solid rgba(74,222,128,0.4)' }}>A</div>
+    <div style={{ padding:'14px 18px', borderRadius:18, background:'linear-gradient(180deg, #181b26, #14161f)', border:'1px solid rgba(255,255,255,0.07)', borderLeft:'3px solid '+GREEN, borderTopLeftRadius:6, display:'flex', alignItems:'center', gap:10 }}>
+      <Spinner />
+      <span style={{ fontSize:14, color:'#6b7180' }}>Axon werkt eraan…</span>
+    </div>
+  </div>
+);
+
+/* ═══════════════════════════════════════════════════
+   SCREEN 1 — ONBOARDING WIZARD
+═══════════════════════════════════════════════════ */
+function Onboarding() {
+  const [step, setStep] = useState(0);
+  const [name, setName] = useState('Brouwerij De Hooge');
+  const [sector, setSector] = useState('Andere');
+  const [picks, setPicks] = useState({ leads:true, email:true, offer:false, tasks:false });
+  const total = 3;
+
+  const sectors = ['Restaurant','Bouw','Marketing','Retail','Andere'];
+  const auto = [
+    { k:'leads', t:'Leads vinden',   d:'Ik zoek elke week passende klanten in jouw regio.', i:'🎯' },
+    { k:'email', t:'Emails beheren', d:'Ik vat je inbox samen en stel antwoorden voor.',    i:'✉️' },
+    { k:'offer', t:'Offertes maken', d:'Ik vul je sjabloon in, reken btw uit, lever PDF.',   i:'📄' },
+    { k:'tasks', t:'Taken opvolgen', d:'Ik herinner je aan deadlines en wachtende dossiers.',i:'✓' },
+  ];
+  const stepMeta = [
+    { eb:'Stap 1 van 3', q:'Wat is je bedrijfsnaam?',      sub:'Zo weet ik hoe ik je klanten moet aanspreken.' },
+    { eb:'Stap 2 van 3', q:'Wat doe je?',                   sub:'Zo pas ik mijn voorstellen aan jouw sector aan.' },
+    { eb:'Stap 3 van 3', q:'Wat wil je automatiseren?',    sub:'Je kunt dit later altijd nog aanpassen.' },
+  ];
+
+  return (
+    <Frame>
+      <TopBar />
+      <div style={{ padding:'0 32px', display:'flex', alignItems:'center', gap:18 }}>
+        <span style={{ fontSize:12, color:'#6b7180', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'.12em', whiteSpace:'nowrap' }}>
+          ONBOARDING · {String(step+1).padStart(2,'0')} / {String(total).padStart(2,'0')}
+        </span>
+        <div style={{ flex:1, height:6, borderRadius:999, background:'rgba(255,255,255,0.06)', overflow:'hidden', border:'1px solid rgba(255,255,255,0.04)' }}>
+          <div style={{ height:'100%', width:`${((step+1)/total)*100}%`, background:`linear-gradient(90deg,#1f7a44,${GREEN})`, borderRadius:999, boxShadow:'0 0 20px rgba(74,222,128,0.5)', transition:'width .4s' }}/>
+        </div>
+        <span style={{ fontSize:12, color:'#a8aebb', fontWeight:600 }}>{Math.round(((step+1)/total)*100)}%</span>
+      </div>
+
+      <div style={{ padding:'40px 32px 0', display:'grid', gridTemplateColumns:'1.1fr 1fr', gap:48, alignItems:'start' }}>
+        <div>
+          <span style={{ display:'inline-flex', gap:8, alignItems:'center', fontSize:12, fontWeight:700, color:GREEN, letterSpacing:'.06em', padding:'6px 12px', border:'1px solid rgba(74,222,128,0.25)', borderRadius:999, background:'rgba(74,222,128,0.06)' }}>
+            ● {stepMeta[step].eb}
+          </span>
+          <h1 style={{ fontSize:42, fontWeight:700, letterSpacing:'-0.02em', margin:'16px 0 8px', lineHeight:1.1 }}>{stepMeta[step].q}</h1>
+          <p style={{ margin:0, color:'#a8aebb', fontSize:17, lineHeight:1.5, maxWidth:480 }}>{stepMeta[step].sub}</p>
+
+          <div style={{ marginTop:32 }}>
+            {step === 0 && (
+              <div>
+                <label style={{ display:'block', fontSize:12, color:'#6b7180', marginBottom:10, fontFamily:"'JetBrains Mono',monospace", letterSpacing:'.12em', textTransform:'uppercase' }}>Bedrijfsnaam</label>
+                <div style={{ border:'1px solid rgba(74,222,128,0.4)', background:'rgba(8,9,13,0.65)', borderRadius:14, padding:'4px 4px 4px 22px', display:'flex', alignItems:'center', boxShadow:'0 0 0 4px rgba(74,222,128,0.08)' }}>
+                  <input value={name} onChange={e => setName(e.target.value)} style={{ flex:1, padding:'18px 0', background:'transparent', border:'none', outline:'none', color:'#ecedf0', fontSize:22, fontWeight:600 }} />
+                  <span style={{ padding:'8px 14px', fontSize:12, color:'#6b7180', fontFamily:"'JetBrains Mono',monospace" }}>{name.length}/60</span>
+                </div>
+                <p style={{ marginTop:14, fontSize:13.5, color:'#6b7180' }}>Tip: gewoon je gewone bedrijfsnaam — zonder BV of NV.</p>
+              </div>
+            )}
+            {step === 1 && (
+              <div>
+                <label style={{ display:'block', fontSize:12, color:'#6b7180', marginBottom:10, fontFamily:"'JetBrains Mono',monospace", letterSpacing:'.12em', textTransform:'uppercase' }}>Kies je sector</label>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:10 }}>
+                  {sectors.map(s => {
+                    const on = sector === s;
+                    return <button key={s} onClick={() => setSector(s)} style={{ padding:'14px 22px', borderRadius:12, fontSize:16, fontWeight:600, cursor:'pointer', border:on?'1px solid rgba(74,222,128,0.5)':'1px solid rgba(255,255,255,0.08)', background:on?'linear-gradient(180deg, rgba(74,222,128,0.16), rgba(74,222,128,0.05))':'rgba(255,255,255,0.025)', color:on?'#d6f5dd':'#a8aebb', boxShadow:on?'0 10px 24px -12px rgba(74,222,128,0.5)':'none', transition:'all .18s' }}>{s}</button>;
+                  })}
+                </div>
+                <div style={{ marginTop:24, padding:'14px 18px', borderRadius:12, border:'1px solid rgba(255,255,255,0.06)', background:'rgba(255,255,255,0.02)', display:'flex', gap:14, alignItems:'center' }}>
+                  <span style={{ fontSize:24 }}>💡</span>
+                  <p style={{ margin:0, fontSize:14, color:'#a8aebb', lineHeight:1.5 }}>Voor <b style={{ color:'#ecedf0' }}>{sector}</b> stel ik vooral klanten en sjablonen voor die typisch in die wereld werken.</p>
+                </div>
+              </div>
+            )}
+            {step === 2 && (
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                {auto.map(a => {
+                  const on = picks[a.k];
+                  return (
+                    <button key={a.k} onClick={() => setPicks(p => ({ ...p, [a.k]:!p[a.k] }))} style={{ textAlign:'left', padding:'18px', borderRadius:14, cursor:'pointer', border:on?'1px solid rgba(74,222,128,0.5)':'1px solid rgba(255,255,255,0.08)', background:on?'linear-gradient(180deg, rgba(74,222,128,0.10), rgba(74,222,128,0.02))':'rgba(255,255,255,0.025)', display:'flex', gap:14, alignItems:'flex-start', transition:'all .18s' }}>
+                      <div style={{ width:42, height:42, borderRadius:11, background:on?'rgba(74,222,128,0.18)':'rgba(255,255,255,0.04)', display:'grid', placeItems:'center', fontSize:20, color:on?GREEN:'#a8aebb', flexShrink:0, border:on?'1px solid rgba(74,222,128,0.3)':'1px solid rgba(255,255,255,0.06)' }}>{a.i}</div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:16, fontWeight:700, color:'#ecedf0' }}>{a.t}</div>
+                        <div style={{ fontSize:13, color:'#a8aebb', marginTop:4, lineHeight:1.45 }}>{a.d}</div>
+                      </div>
+                      <div style={{ width:22, height:22, borderRadius:6, border:on?'1px solid '+GREEN:'1px solid rgba(255,255,255,0.18)', background:on?GREEN:'transparent', display:'grid', placeItems:'center', flexShrink:0, marginTop:2 }}>
+                        {on && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#06120a" strokeWidth="3.5"><path d="M5 12l5 5L20 7"/></svg>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ padding:28, borderRadius:22, ...glass }}>
+          <div style={{ fontSize:11.5, color:'#6b7180', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'.12em', textTransform:'uppercase', marginBottom:14 }}>Voorvertoning</div>
+          <div style={{ borderRadius:14, padding:'18px 20px', background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
+              <div style={{ width:36, height:36, borderRadius:10, background:'radial-gradient(circle at 30% 25%, rgba(74,222,128,0.5), transparent 60%), #0e1a14', border:'1px solid rgba(74,222,128,0.4)', display:'grid', placeItems:'center', color:GREEN, fontWeight:800, fontSize:13, flexShrink:0 }}>A</div>
+              <div style={{ fontSize:14, color:'#ecedf0', lineHeight:1.5 }}>Hallo, ik ben <b style={{ color:GREEN }}>Axon</b>. Ik werk vanaf morgen voor <b>{name || '…'}</b>{step >= 1 && <> in de sector <b>{sector}</b></>}.</div>
+            </div>
+            {step >= 2 && (
+              <ul style={{ margin:'14px 0 0', padding:0, listStyle:'none', display:'flex', flexDirection:'column', gap:8 }}>
+                {auto.filter(a => picks[a.k]).map(a => (
+                  <li key={a.k} style={{ display:'flex', gap:10, alignItems:'center', fontSize:13.5, color:'#a8aebb' }}>
+                    <span style={{ width:18, height:18, borderRadius:'50%', background:'rgba(74,222,128,0.15)', display:'grid', placeItems:'center', color:GREEN, flexShrink:0 }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5"><path d="M5 12l5 5L20 7"/></svg>
+                    </span>
+                    Ik <b style={{ color:'#ecedf0' }}>{a.t.toLowerCase()}</b>
+                  </li>
+                ))}
+                {auto.filter(a => picks[a.k]).length === 0 && <li style={{ fontSize:13.5, color:'#6b7180' }}>Selecteer minstens één taak →</li>}
+              </ul>
+            )}
+          </div>
+          <div style={{ marginTop:18, fontSize:12, color:'#6b7180', lineHeight:1.5 }}>Je kunt later op elk moment bijstellen wat ik wel of niet doe — niets staat vast.</div>
+        </div>
+      </div>
+
+      <div style={{ position:'sticky', bottom:0, padding:'20px 32px', display:'flex', justifyContent:'space-between', alignItems:'center', borderTop:'1px solid rgba(255,255,255,0.06)', background:'rgba(10,10,15,0.7)', backdropFilter:'blur(14px)', marginTop:40 }}>
+        <button onClick={() => setStep(s => Math.max(0, s-1))} style={{ padding:'12px 20px', borderRadius:12, border:'1px solid rgba(255,255,255,0.1)', background:'rgba(255,255,255,0.02)', color:step===0?'#6b7180':'#a8aebb', fontWeight:600, fontSize:14, cursor:step===0?'not-allowed':'pointer' }}>← Terug</button>
+        <span style={{ display:'flex', gap:8 }}>
+          {[0,1,2].map(i => <span key={i} style={{ width:i===step?28:8, height:8, borderRadius:999, background:i<=step?GREEN:'rgba(255,255,255,0.1)', transition:'all .3s' }}/>)}
+        </span>
+        <button onClick={() => setStep(s => Math.min(total-1, s+1))} style={{ padding:'14px 28px', borderRadius:12, background:GREEN, color:'#06120a', fontWeight:700, fontSize:15, border:'none', cursor:'pointer', boxShadow:'0 12px 28px -10px rgba(74,222,128,0.6)', display:'inline-flex', alignItems:'center', gap:10 }}>
+          {step === total-1 ? 'Klaar — start Axon' : 'Volgende stap'}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </Frame>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   SCREEN 2 — MAIN DASHBOARD
+═══════════════════════════════════════════════════ */
+const ActionCard = ({ tone, icon, meta, metaLabel, title, desc, cta, onAction, loading }) => {
+  const c = COLORS[tone];
+  return (
+    <article style={{ position:'relative', overflow:'hidden', borderRadius:22, ...glass, padding:'24px 26px 22px', display:'flex', flexDirection:'column', gap:14, transition:'transform .2s, box-shadow .2s' }}
+      onMouseEnter={e => { e.currentTarget.style.transform='translateY(-3px)'; e.currentTarget.style.boxShadow='0 16px 48px -16px rgba(0,0,0,0.5)'; }}
+      onMouseLeave={e => { e.currentTarget.style.transform=''; e.currentTarget.style.boxShadow=''; }}
+    >
+      <div style={{ position:'absolute', inset:0, pointerEvents:'none', background:`radial-gradient(380px 180px at 100% 0%, ${c.glow}, transparent 70%)` }}/>
+      <div style={{ position:'absolute', left:0, right:0, bottom:0, height:1, background:`linear-gradient(90deg, transparent, ${c.tone}, transparent)`, opacity:.35 }}/>
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', position:'relative' }}>
+        <div style={{ width:54, height:54, borderRadius:15, background:c.soft, border:`1px solid ${c.border}`, color:c.tone, display:'grid', placeItems:'center', boxShadow:`0 12px 30px -14px ${c.tone}` }}>{icon}</div>
+        <div style={{ textAlign:'right', fontSize:11.5, color:'#6b7180', fontWeight:500, lineHeight:1.5 }}>
+          <b style={{ display:'block', color:'#ecedf0', fontSize:18, fontWeight:700, letterSpacing:'-.01em' }}>{meta}</b>
+          {metaLabel}
+        </div>
+      </div>
+      <h3 style={{ fontSize:21, fontWeight:700, letterSpacing:'-.015em', margin:'4px 0 0', lineHeight:1.2 }}>{title}</h3>
+      <p style={{ margin:0, color:'#a8aebb', fontSize:14.5, lineHeight:1.5 }}>{desc}</p>
+      <button
+        onClick={onAction}
+        disabled={loading}
+        style={{ marginTop:'auto', alignSelf:'flex-start', display:'inline-flex', alignItems:'center', gap:10, padding:'12px 18px', borderRadius:12, fontSize:14.5, fontWeight:700, cursor:loading?'wait':'pointer', background:GREEN, color:'#06120a', border:'none', boxShadow:'0 10px 26px -10px rgba(74,222,128,0.6)', transition:'transform .15s, opacity .15s', opacity:loading?0.75:1 }}
+        onMouseEnter={e => { if (!loading) e.currentTarget.style.transform='translateY(-1px)'; }}
+        onMouseLeave={e => { e.currentTarget.style.transform=''; }}
+      >
+        {loading ? <Spinner dark /> : cta}
+        {!loading && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg>}
+      </button>
+    </article>
+  );
+};
+
+function Dashboard() {
+  const [bannerVisible, setBannerVisible] = useState(true);
+  const [loadingTask, setLoadingTask] = useState(null); // which CTA is busy
+  const [msg, setMsg] = useState('');
+  const [messages, setMessages] = useState([
+    { side:'ai', text:'Hallo Lucas 👋 Ik ben verbonden met het systeem. Klik een actieknop of stel me een vraag.' },
+  ]);
+  const chatRef = useRef(null);
+
+  useEffect(() => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [messages, loadingTask]);
+
+  const runTask = async (task, ctaKey) => {
+    if (loadingTask) return;
+    setMessages(m => [...m, { side:'me', text: task }]);
+    setLoadingTask(ctaKey);
+    try {
+      const result = await callOrchestrator(task);
+      setMessages(m => [...m, { side:'ai', text: result }]);
+    } catch (e) {
+      setMessages(m => [...m, { side:'ai', text: e.message, error: true }]);
+    } finally {
+      setLoadingTask(null);
+    }
+  };
+
+  const send = () => {
+    const text = msg.trim();
+    if (!text || loadingTask) return;
+    setMsg('');
+    runTask(text, 'chat');
+  };
+
+  const cards = [
+    {
+      tone:'green', cta:'Start zoekopdracht', meta:'14', metaLabel:'nieuwe deze week',
+      task:'Vind nieuwe klanten voor een Belgische brouwerij in West-Vlaanderen',
+      icon:<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/><circle cx="11" cy="11" r="2.5" fill="currentColor" opacity=".25"/></svg>,
+      title:'Vind nieuwe klanten',
+      desc:'Ik zoek bedrijven in jouw regio die bij jou passen — en stel meteen een eerste mail op.',
+    },
+    {
+      tone:'blue', cta:'Open inbox', meta:'23', metaLabel:'onbeantwoord',
+      task:'Lees mijn emails',
+      icon:<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>,
+      title:'Lees mijn emails',
+      desc:'Ik vat je inbox samen, markeer wat dringend is en stel antwoorden voor — jij keurt goed.',
+    },
+    {
+      tone:'orange', cta:'Nieuwe offerte', meta:'3', metaLabel:'klaar voor verzending',
+      task:'Maak een nieuwe offerte',
+      icon:<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 14h6M9 17h4"/></svg>,
+      title:'Maak een offerte',
+      desc:'Vertel me voor wie en wat. Ik vul je sjabloon in, reken btw uit en zet de PDF klaar.',
+    },
+    {
+      tone:'purple', cta:'Bekijk lijst', meta:'7', metaLabel:'op je lijstje',
+      task:'Toon mijn taken',
+      icon:<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>,
+      title:'Toon mijn taken',
+      desc:'Ik hou bij wat moet gebeuren, wat dringend is en wat al wacht op iemand anders.',
+    },
+  ];
+
+  return (
+    <Frame>
+      <TopBar />
+
+      {bannerVisible && (
+        <div style={{ padding:'0 32px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 20px', borderRadius:14, border:'1px solid rgba(74,222,128,0.22)', background:'linear-gradient(90deg, rgba(74,222,128,0.10), rgba(74,222,128,0.02))' }}>
+            <span style={{ width:34, height:34, borderRadius:10, background:'rgba(74,222,128,0.18)', display:'grid', placeItems:'center', color:GREEN, flexShrink:0 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12l5 5L20 7"/></svg>
+            </span>
+            <div style={{ flex:1, fontSize:15, color:'#ecedf0', lineHeight:1.45 }}>
+              Axon heeft gisteren <b style={{ color:GREEN }}>3 emails beantwoord</b> en <b style={{ color:GREEN }}>5 leads gevonden</b>.
+              <span style={{ color:'#a8aebb' }}> Wil je het overzicht zien?</span>
+            </div>
+            <button style={{ padding:'8px 14px', borderRadius:10, border:'1px solid rgba(74,222,128,0.3)', background:'rgba(74,222,128,0.08)', color:GREEN, fontSize:13, fontWeight:600, cursor:'pointer' }}>Bekijk →</button>
+            <button onClick={() => setBannerVisible(false)} style={{ width:30, height:30, borderRadius:8, border:'none', background:'transparent', color:'#6b7180', cursor:'pointer', fontSize:16 }}>✕</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ padding:'24px 32px 12px' }}>
+        <h1 style={{ fontSize:34, fontWeight:700, letterSpacing:'-0.02em', margin:'8px 0 6px', lineHeight:1.1 }}>
+          Goedemiddag, Lucas. <span style={{ color:GREEN }}>Wat doen we vandaag?</span>
+        </h1>
+        <p style={{ margin:0, fontSize:15.5, color:'#a8aebb' }}>Klik een actieknop om Axon aan het werk te zetten, of stel een vraag in de chat.</p>
+      </div>
+
+      <div style={{ padding:'8px 32px 0', display:'grid', gridTemplateColumns:'1fr 1fr', gap:18 }}>
+        {cards.map(c => (
+          <ActionCard key={c.cta} {...c}
+            onAction={() => runTask(c.task, c.cta)}
+            loading={loadingTask === c.cta}
+          />
+        ))}
+      </div>
+
+      {/* Chat */}
+      <div style={{ padding:'24px 32px 40px' }}>
+        <div style={{ borderRadius:22, ...glass, overflow:'hidden' }}>
+          <div style={{ padding:'16px 22px', borderBottom:'1px solid rgba(255,255,255,0.06)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+              <h2 style={{ margin:0, fontSize:17, fontWeight:700 }}>Praat met Axon</h2>
+              <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:12.5, color: loadingTask ? '#fb923c' : GREEN, fontWeight:600, padding:'4px 10px', borderRadius:999, background: loadingTask ? 'rgba(251,146,60,0.12)' : 'rgba(74,222,128,0.14)' }}>
+                <span style={{ width:7, height:7, borderRadius:'50%', background: loadingTask ? '#fb923c' : GREEN }}/> {loadingTask ? 'verwerkt…' : 'online — antwoordt in seconden'}
+              </span>
+            </div>
+          </div>
+
+          <div ref={chatRef} style={{ padding:'20px 24px', display:'flex', flexDirection:'column', gap:14, maxHeight:340, overflowY:'auto' }}>
+            {messages.map((m, i) => (
+              <Bubble key={i} side={m.side} error={m.error}>{m.text}</Bubble>
+            ))}
+            {loadingTask && <ThinkingBubble />}
+          </div>
+
+          <div style={{ padding:'14px 22px 18px', borderTop:'1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12, padding:'6px 6px 6px 22px', borderRadius:14, border:'1px solid rgba(255,255,255,0.12)', background:'#0c0e15' }}>
+              <span style={{ color:'#6b7180', fontSize:18 }}>›</span>
+              <input
+                placeholder="Stel een vraag of geef een opdracht aan Axon…"
+                value={msg}
+                onChange={e => setMsg(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && send()}
+                disabled={!!loadingTask}
+                style={{ flex:1, padding:'14px 0', background:'transparent', border:'none', outline:'none', color:'#ecedf0', fontSize:16, opacity: loadingTask ? 0.5 : 1 }}
+              />
+              <button
+                onClick={send}
+                disabled={!!loadingTask || !msg.trim()}
+                style={{ height:46, padding:'0 22px', borderRadius:12, background:GREEN, color:'#06120a', border:'none', fontWeight:700, fontSize:14.5, cursor: (loadingTask || !msg.trim()) ? 'not-allowed' : 'pointer', display:'inline-flex', alignItems:'center', gap:8, boxShadow:'0 12px 28px -10px rgba(74,222,128,0.6)', opacity: (loadingTask || !msg.trim()) ? 0.6 : 1, transition:'opacity .15s' }}
+              >
+                {loadingTask === 'chat' ? <Spinner dark /> : 'Stuur'}
+                {loadingTask !== 'chat' && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg>}
+              </button>
+            </div>
+            <p style={{ marginTop:10, fontSize:12, color:'#6b7180' }}>
+              Probeer: "Toon mijn taken" · "Lees mijn emails" · "Maak een offerte voor Sofie Dewulf"
+            </p>
+          </div>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   SCREEN 3 — WEEKLY REPORT
+═══════════════════════════════════════════════════ */
+function Report() {
+  const [loading, setLoading] = useState(false);
+  const [resultMsg, setResultMsg] = useState(null);
+
+  const handleDownload = async () => {
+    setLoading(true);
+    setResultMsg(null);
+    try {
+      const result = await callOrchestrator('Maak een weekrapport als PDF');
+      setResultMsg({ ok: true, text: result });
+    } catch (e) {
+      setResultMsg({ ok: false, text: e.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Frame>
+      <TopBar />
+      <div style={{ padding:'0 40px 60px', maxWidth:960, margin:'0 auto' }}>
+        <div style={{ padding:'8px 0 28px', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+          <span style={{ display:'inline-flex', gap:8, alignItems:'center', fontSize:12, fontWeight:700, color:GREEN, letterSpacing:'.06em', padding:'6px 12px', border:'1px solid rgba(74,222,128,0.25)', borderRadius:999, background:'rgba(74,222,128,0.06)' }}>
+            ● Weekrapport · KW 19 · 5–9 mei 2026
+          </span>
+          <h1 style={{ margin:'18px 0 8px', fontSize:40, fontWeight:700, letterSpacing:'-0.02em', lineHeight:1.1 }}>Wat Axon deze week<br/>voor jou deed.</h1>
+          <p style={{ margin:0, fontSize:16.5, color:'#a8aebb', lineHeight:1.55, maxWidth:640 }}>
+            Een eenvoudig overzicht — geen grafieken, geen ingewikkelde cijfers. Wat ik gedaan heb, en wat dat opleverde voor Brouwerij De Hooge.
+          </p>
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, marginTop:24 }}>
+          {[
+            { n:14, l:'Leads gevonden',        s:'+6 vs. vorige week' },
+            { n:42, l:'Emails beantwoord',     s:'gemiddeld 14 min responstijd' },
+            { n:8,  l:'Documenten aangemaakt', s:'5 offertes · 3 herinneringen' },
+          ].map((s,i) => (
+            <div key={i} style={{ padding:'22px 22px 18px', borderRadius:18, ...glass }}>
+              <div style={{ fontSize:13, color:'#a8aebb', fontWeight:600 }}>{s.l}</div>
+              <div style={{ fontSize:52, fontWeight:700, letterSpacing:'-0.03em', lineHeight:1, marginTop:8, color:GREEN }}>{s.n}</div>
+              <div style={{ fontSize:12.5, color:'#6b7180', marginTop:6, fontFamily:"'JetBrains Mono',monospace" }}>{s.s}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginTop:32, padding:'28px 30px', borderRadius:20, border:'1px solid rgba(255,255,255,0.06)', background:'rgba(255,255,255,0.018)' }}>
+          <h2 style={{ margin:'0 0 14px', fontSize:20, fontWeight:700, letterSpacing:'-.01em' }}>In gewoon Nederlands</h2>
+          <p style={{ margin:'0 0 14px', fontSize:16.5, color:'#cfd2da', lineHeight:1.7 }}>
+            Beste Lucas, deze week is rustig maar productief geweest. Ik heb <b style={{ color:GREEN }}>14 nieuwe contacten</b> gevonden in West-Vlaanderen die goed bij je proefkamer-aanbod passen — vooral bouwbedrijven en horeca die nog niet bij je kopen. Drie ervan hebben al positief geantwoord.
+          </p>
+          <p style={{ margin:'0 0 14px', fontSize:16.5, color:'#cfd2da', lineHeight:1.7 }}>
+            Verder heb ik <b style={{ color:GREEN }}>42 mails afgehandeld</b> in jouw plaats — meestal vragen over leveringen en proeverijen. Niets dringends bleef liggen. Je hebt nog <b>één mail</b> openstaan die echt jouw stem nodig heeft (van Vandeputte Bouwgroep — staat klaar in je inbox).
+          </p>
+          <p style={{ margin:0, fontSize:16.5, color:'#cfd2da', lineHeight:1.7 }}>
+            Tot slot heb ik <b style={{ color:GREEN }}>5 offertes</b> opgesteld op basis van je gewone sjabloon, en <b>3 vriendelijke herinneringen</b> gestuurd voor openstaande facturen. Volgende week stel ik voor om de proeverij van 22 mei in te plannen — dat staat al op je lijstje.
+          </p>
+        </div>
+
+        <div style={{ marginTop:20, display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+          <div style={{ padding:'18px 20px', borderRadius:14, border:'1px solid rgba(74,222,128,0.22)', background:'linear-gradient(90deg, rgba(74,222,128,0.10), rgba(74,222,128,0.02))' }}>
+            <div style={{ fontSize:11.5, color:GREEN, fontFamily:"'JetBrains Mono',monospace", letterSpacing:'.12em', textTransform:'uppercase', fontWeight:600 }}>Beste moment</div>
+            <div style={{ fontSize:15.5, color:'#ecedf0', marginTop:8, lineHeight:1.5 }}>Sofie Dewulf antwoordde binnen 12 minuten. <b style={{ color:GREEN }}>Eerste deal in zicht.</b></div>
+          </div>
+          <div style={{ padding:'18px 20px', borderRadius:14, border:'1px solid rgba(255,255,255,0.07)', background:'rgba(255,255,255,0.02)' }}>
+            <div style={{ fontSize:11.5, color:'#a8aebb', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'.12em', textTransform:'uppercase', fontWeight:600 }}>Nodig van jou</div>
+            <div style={{ fontSize:15.5, color:'#ecedf0', marginTop:8, lineHeight:1.5 }}>1 mail van Vandeputte — kan ik niet alleen beantwoorden, ze willen je horen.</div>
+          </div>
+        </div>
+
+        {/* Download CTA */}
+        <div style={{ marginTop:28, display:'flex', flexDirection:'column', gap:14, padding:'22px 26px', borderRadius:18, ...glass }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:18 }}>
+            <div>
+              <div style={{ fontSize:17, fontWeight:700 }}>Bewaar dit rapport</div>
+              <div style={{ fontSize:14, color:'#a8aebb', marginTop:4 }}>Axon genereert een PDF via de document-agent — klaar om door te sturen naar je boekhouder of partner.</div>
+            </div>
+            <button
+              onClick={handleDownload}
+              disabled={loading}
+              style={{ padding:'16px 26px', borderRadius:14, background:GREEN, color:'#06120a', border:'none', fontWeight:700, fontSize:16, cursor:loading?'wait':'pointer', display:'inline-flex', alignItems:'center', gap:10, boxShadow:'0 14px 32px -10px rgba(74,222,128,0.6)', opacity:loading?0.75:1, transition:'opacity .15s', flexShrink:0 }}
+            >
+              {loading ? <><Spinner dark /> Bezig…</> : <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg> Download als PDF</>}
+            </button>
+          </div>
+          {resultMsg && (
+            <div style={{ padding:'14px 18px', borderRadius:12, background: resultMsg.ok ? 'rgba(74,222,128,0.08)' : 'rgba(251,146,60,0.08)', border:`1px solid ${resultMsg.ok ? 'rgba(74,222,128,0.25)' : 'rgba(251,146,60,0.25)'}`, fontSize:13.5, color: resultMsg.ok ? '#a8f0bc' : '#fbcfaa', lineHeight:1.6, whiteSpace:'pre-wrap', animation:'fadeIn .3s ease' }}>
+              {resultMsg.text}
+            </div>
+          )}
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   SCREEN 4 — MOBILE (phone frame)
+═══════════════════════════════════════════════════ */
+function MobileScreen() {
+  const [activeNav, setActiveNav] = useState('home');
+  const [mobileMsg, setMobileMsg] = useState('');
+  const [mobileLoading, setMobileLoading] = useState(false);
+  const [mobileMessages, setMobileMessages] = useState([
+    { side:'ai', text:'Wil je dat ik beginnen met de offerte of met Sofie\'s mail?' },
+  ]);
+  const mobileChatRef = useRef(null);
+
+  useEffect(() => {
+    if (mobileChatRef.current) mobileChatRef.current.scrollTop = mobileChatRef.current.scrollHeight;
+  }, [mobileMessages, mobileLoading]);
+
+  const mobileSend = async () => {
+    const text = mobileMsg.trim();
+    if (!text || mobileLoading) return;
+    setMobileMessages(m => [...m, { side:'me', text }]);
+    setMobileMsg('');
+    setMobileLoading(true);
+    try {
+      const result = await callOrchestrator(text);
+      setMobileMessages(m => [...m, { side:'ai', text: result }]);
+    } catch (e) {
+      setMobileMessages(m => [...m, { side:'ai', text: e.message, error: true }]);
+    } finally {
+      setMobileLoading(false);
+    }
+  };
+
+  return (
+    <Frame style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-start', paddingTop:32, paddingBottom:40 }}>
+      <div style={{ fontSize:13, color:'#6b7180', marginBottom:20, fontFamily:"'JetBrains Mono',monospace", letterSpacing:'.06em' }}>MOBIELE VERSIE — 390 × 844</div>
+      <div style={{ width:390, position:'relative', borderRadius:42, boxShadow:'0 40px 120px -24px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.08)', background:'#0a0a0f', overflow:'hidden' }}>
+        {/* Status bar */}
+        <div style={{ height:44, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px', fontSize:13, fontWeight:600, color:'#ecedf0' }}>
+          <span style={{ fontFamily:"'JetBrains Mono',monospace" }}>14:32</span>
+          <span style={{ display:'flex', gap:5, alignItems:'center', fontSize:11 }}><span>●●●</span><span>5G</span><span>▮▮</span></span>
+        </div>
+
+        {/* Top bar */}
+        <div style={{ padding:'10px 20px 14px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <Logo size={32} />
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}><LangToggle /><Avatar size={32} /></div>
+        </div>
+
+        {/* Banner */}
+        <div style={{ padding:'0 16px' }}>
+          <div style={{ padding:'12px 14px', borderRadius:14, border:'1px solid rgba(74,222,128,0.22)', background:'linear-gradient(90deg, rgba(74,222,128,0.10), rgba(74,222,128,0.02))', display:'flex', gap:10, alignItems:'flex-start' }}>
+            <span style={{ width:26, height:26, borderRadius:7, background:'rgba(74,222,128,0.18)', display:'grid', placeItems:'center', color:GREEN, flexShrink:0, marginTop:1 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12l5 5L20 7"/></svg>
+            </span>
+            <div style={{ fontSize:13.5, color:'#ecedf0', lineHeight:1.45 }}>Gisteren: <b style={{ color:GREEN }}>3 mails</b> beantwoord &amp; <b style={{ color:GREEN }}>5 leads</b> gevonden.</div>
+          </div>
+        </div>
+
+        {/* Greeting */}
+        <div style={{ padding:'18px 20px 10px' }}>
+          <h1 style={{ fontSize:24, fontWeight:700, letterSpacing:'-0.015em', margin:0, lineHeight:1.15 }}>Hallo Lucas. <span style={{ color:GREEN }}>Wat doen we?</span></h1>
+        </div>
+
+        {/* Action cards */}
+        <div style={{ padding:'4px 16px 0', display:'flex', flexDirection:'column', gap:12 }}>
+          {[
+            { tone:'green',  t:'Vind nieuwe klanten', d:'14 nieuwe deze week', i:'🎯', task:'Vind nieuwe klanten' },
+            { tone:'blue',   t:'Lees mijn emails',    d:'23 onbeantwoord',     i:'✉️', task:'Lees mijn emails' },
+            { tone:'orange', t:'Maak een offerte',    d:'3 wachten op je',     i:'📄', task:'Maak een nieuwe offerte' },
+          ].map((c,i) => {
+            const col = COLORS[c.tone];
+            return (
+              <div key={i} style={{ padding:'14px 16px', borderRadius:16, ...glass, display:'flex', alignItems:'center', gap:14, position:'relative', overflow:'hidden' }}>
+                <div style={{ position:'absolute', inset:0, background:`radial-gradient(140px 100px at 100% 0%, ${col.glow}, transparent 70%)` }}/>
+                <div style={{ width:42, height:42, borderRadius:11, background:col.soft, border:`1px solid ${col.border}`, display:'grid', placeItems:'center', fontSize:18, color:col.tone, flexShrink:0 }}>{c.i}</div>
+                <div style={{ flex:1, position:'relative' }}>
+                  <div style={{ fontSize:15, fontWeight:700, color:'#ecedf0' }}>{c.t}</div>
+                  <div style={{ fontSize:12.5, color:'#a8aebb', marginTop:2 }}>{c.d}</div>
+                </div>
+                <button
+                  onClick={() => {
+                    setMobileMessages(m => [...m, { side:'me', text: c.t }]);
+                    setMobileLoading(true);
+                    callOrchestrator(c.task)
+                      .then(r => setMobileMessages(m => [...m, { side:'ai', text: r }]))
+                      .catch(e => setMobileMessages(m => [...m, { side:'ai', text: e.message, error: true }]))
+                      .finally(() => setMobileLoading(false));
+                  }}
+                  disabled={mobileLoading}
+                  style={{ padding:'8px 12px', borderRadius:10, background:GREEN, color:'#06120a', border:'none', fontWeight:700, fontSize:13, cursor:mobileLoading?'wait':'pointer', opacity:mobileLoading?0.6:1 }}
+                >Open</button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Chat */}
+        <div style={{ padding:'18px 16px 0' }}>
+          <div style={{ padding:'14px 16px', borderRadius:18, ...glass }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+              <div style={{ width:26, height:26, borderRadius:7, background:'radial-gradient(circle at 30% 25%, rgba(74,222,128,0.5), transparent 60%), #0e1a14', border:'1px solid rgba(74,222,128,0.4)', display:'grid', placeItems:'center', color:GREEN, fontWeight:800, fontSize:11, flexShrink:0 }}>A</div>
+              <span style={{ fontSize:13.5, fontWeight:700 }}>Praat met Axon</span>
+              <span style={{ marginLeft:'auto', fontSize:11, color: mobileLoading ? '#fb923c' : GREEN, fontWeight:600 }}>{mobileLoading ? '● bezig…' : '● online'}</span>
+            </div>
+            <div ref={mobileChatRef} style={{ display:'flex', flexDirection:'column', gap:8, maxHeight:180, overflowY:'auto' }}>
+              {mobileMessages.map((m, i) => (
+                <div key={i} style={{ padding:'10px 12px', borderRadius:12, fontSize:13.5, lineHeight:1.5, color:'#ecedf0', whiteSpace:'pre-wrap', wordBreak:'break-word', ...( m.side === 'me' ? { background:'rgba(74,222,128,0.10)', alignSelf:'flex-end', maxWidth:'85%', borderRadius:'12px 4px 12px 12px' } : { background:'rgba(255,255,255,0.025)', borderLeft:`3px solid ${m.error?'#fb923c':GREEN}` }) }}>
+                  {m.text}
+                </div>
+              ))}
+              {mobileLoading && (
+                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', background:'rgba(255,255,255,0.025)', borderRadius:12, borderLeft:`3px solid ${GREEN}` }}>
+                  <Spinner /><span style={{ fontSize:13, color:'#6b7180' }}>Axon denkt…</span>
+                </div>
+              )}
+            </div>
+            <div style={{ marginTop:10, display:'flex', alignItems:'center', gap:8, padding:'4px 4px 4px 14px', borderRadius:12, border:'1px solid rgba(255,255,255,0.12)', background:'#0c0e15' }}>
+              <input
+                placeholder="Stel een vraag…"
+                value={mobileMsg}
+                onChange={e => setMobileMsg(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && mobileSend()}
+                disabled={mobileLoading}
+                style={{ flex:1, padding:'10px 0', background:'transparent', border:'none', outline:'none', color:'#ecedf0', fontSize:13.5, opacity: mobileLoading ? 0.5 : 1 }}
+              />
+              <button onClick={mobileSend} disabled={mobileLoading || !mobileMsg.trim()} style={{ height:34, width:34, borderRadius:9, background:GREEN, border:'none', display:'grid', placeItems:'center', color:'#06120a', cursor:(mobileLoading||!mobileMsg.trim())?'not-allowed':'pointer', opacity:(mobileLoading||!mobileMsg.trim())?0.6:1 }}>
+                {mobileLoading ? <Spinner dark /> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg>}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom nav */}
+        <div style={{ padding:'10px 14px 28px', borderTop:'1px solid rgba(255,255,255,0.06)', background:'rgba(10,10,15,0.9)', backdropFilter:'blur(18px)', display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', marginTop:18 }}>
+          {[
+            { id:'home',    l:'Home',    ic:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 11l9-8 9 8M5 10v10h14V10"/></svg> },
+            { id:'chat',    l:'Chat',    ic:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> },
+            { id:'rapport', l:'Rapport', ic:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg> },
+            { id:'profiel', l:'Profiel', ic:<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg> },
+          ].map(n => (
+            <button key={n.id} onClick={() => setActiveNav(n.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:5, padding:'8px 0', background:'transparent', border:'none', color:activeNav===n.id?GREEN:'#6b7180', cursor:'pointer', fontSize:11, fontWeight:600, position:'relative', transition:'color .15s' }}>
+              {activeNav===n.id && <span style={{ position:'absolute', top:-10, width:30, height:3, background:GREEN, borderRadius:'0 0 3px 3px', boxShadow:'0 0 10px rgba(74,222,128,0.6)' }}/>}
+              {n.ic}<span>{n.l}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   ROOT APP — tab nav
+═══════════════════════════════════════════════════ */
+const TABS = [
+  { id:'onboarding', label:'01 · Onboarding',  Screen: Onboarding   },
+  { id:'dashboard',  label:'02 · Dashboard',    Screen: Dashboard    },
+  { id:'rapport',    label:'03 · Weekrapport',  Screen: Report       },
+  { id:'mobiel',     label:'04 · Mobiel',       Screen: MobileScreen },
+];
+
+function App() {
+  const [active, setActive] = useState('dashboard');
+  const { Screen } = TABS.find(t => t.id === active);
+  return (
+    <>
+      <nav className="screen-nav">
+        <a href="/" className="screen-nav-logo">AXON</a>
+        <div className="screen-tabs">
+          {TABS.map(t => (
+            <button key={t.id} className={`screen-tab ${active === t.id ? 'active' : ''}`} onClick={() => setActive(t.id)}>{t.label}</button>
+          ))}
+        </div>
+        <a href="/" className="back-link">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+          Terug naar site
+        </a>
+      </nav>
+      <div className="screen-content"><Screen /></div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

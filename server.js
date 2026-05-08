@@ -1,6 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,7 +13,7 @@ fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
 if (!fs.existsSync(WAITLIST_FILE)) fs.writeFileSync(WAITLIST_FILE, '[]', 'utf8');
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 
 function readWaitlist() {
   try {
@@ -67,6 +68,59 @@ app.post('/api/waitlist', (req, res) => {
 
   writeWaitlist(list);
   res.status(201).json({ success: true, message: 'Inschrijving gelukt' });
+});
+
+// POST /api/orchestrate — run a Dutch task through the Python orchestrator
+app.post('/api/orchestrate', (req, res) => {
+  const { task } = req.body;
+  if (!task || typeof task !== 'string' || !task.trim()) {
+    return res.status(400).json({ error: 'Taak vereist' });
+  }
+
+  const TIMEOUT_MS = 120_000; // 2 min — LLM + agent calls can be slow
+  const scriptPath = path.join(__dirname, 'AI-Agents', 'run_task.py');
+  const agentsDir  = path.join(__dirname, 'AI-Agents');
+
+  const py = spawn('python', [scriptPath], {
+    cwd: agentsDir,
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' },
+  });
+
+  let stdout = '';
+  let stderr = '';
+  let done = false;
+
+  const finish = (status, payload) => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    py.kill('SIGTERM');
+    res.status(status).json(payload);
+  };
+
+  const timer = setTimeout(
+    () => finish(504, { error: 'Time-out: de taak duurde te lang (max 120s).' }),
+    TIMEOUT_MS,
+  );
+
+  py.stdout.on('data', d => { stdout += d.toString('utf8'); });
+  py.stderr.on('data', d => { stderr += d.toString('utf8'); });
+
+  py.stdin.write(task.trim(), 'utf8');
+  py.stdin.end();
+
+  py.on('close', code => {
+    if (done) return;
+    if (code !== 0) {
+      const errMsg = stderr.trim() || `Python afsluitcode ${code}`;
+      return finish(500, { error: errMsg });
+    }
+    finish(200, { result: stdout.trim() });
+  });
+
+  py.on('error', err => {
+    finish(500, { error: `Kon Python niet starten: ${err.message}` });
+  });
 });
 
 // GET /admin — password-protected admin UI
