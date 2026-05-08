@@ -27,10 +27,11 @@ Beschikbare agents:
      - limit         (int, optioneel, standaard 10): max aantal leads
      - dry_run       (bool, optioneel, standaard true): true = geen echte emails versturen
 
-2. email_manager — Leest of beantwoordt emails.
+2. email_manager — Leest, categoriseert of beantwoordt emails in de Gmail inbox.
    Parameters:
-     - action (str): "read" of "reply"
-     - query  (str, optioneel): zoekterm of context
+     - action (str): "read" (ongelezen emails tonen), "categorize" (inbox categoriseren), of "reply" (emails beantwoorden)
+     - query  (str, optioneel): extra filter, bv. "vandaag" voor emails van vandaag, of een Gmail-zoekterm
+     - limit  (int, optioneel, standaard 10): max aantal emails
 
 3. task_manager — Beheert taken en to-do's.
    Parameters:
@@ -44,7 +45,9 @@ Beschikbare agents:
 
 Kies altijd de meest passende agent op basis van de taak.
 Als de taak gaat over leads zoeken of emails sturen naar nieuwe bedrijven → lead_generator.
-Als de taak gaat over inkomende emails lezen of beantwoorden → email_manager.
+Als de taak gaat over inkomende emails lezen of samenvatten → email_manager met action="read".
+Als de taak gaat over inbox categoriseren of sorteren → email_manager met action="categorize".
+Als de taak gaat over emails beantwoorden → email_manager met action="reply"; voeg query="vandaag" toe als de taak "van vandaag" vermeldt.
 Als de taak gaat over taken, to-do's, planning → task_manager.
 Als de taak gaat over documenten, offertes, rapporten aanmaken → document_agent.
 
