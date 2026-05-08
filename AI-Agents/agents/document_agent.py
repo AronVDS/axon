@@ -77,15 +77,18 @@ def _llm(user: str, system: str = _NL_SYSTEM) -> str:
     )["message"]["content"].strip()
 
 
-def _llm_json(user: str) -> dict | None:
-    raw     = _llm(user)
-    cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
-    match   = re.search(r"\{[\s\S]*\}", cleaned)
-    if match:
-        try:
-            return json.loads(match.group())
-        except json.JSONDecodeError:
-            pass
+def _llm_json(user: str, retries: int = 3) -> dict | None:
+    for attempt in range(retries):
+        raw     = _llm(user)
+        cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
+        match   = re.search(r"\{[\s\S]*\}", cleaned)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+        if attempt < retries - 1:
+            print(f"  [DocumentAgent] JSON parse mislukt (poging {attempt + 1}/{retries}), opnieuw...")
     return None
 
 
@@ -190,101 +193,113 @@ class _PDF(FPDF):
 # Document generators
 # ---------------------------------------------------------------------------
 
+def _offerte_fallback(company: str, services: str, price: str, context: str) -> dict:
+    """Template-based fallback when llama3 cannot produce valid JSON."""
+    omschrijving = services or context or "de gevraagde diensten"
+    return {
+        "company":     company or "Geachte klant",
+        "intro": (
+            f"Hartelijk dank voor uw interesse in de diensten van Axon. "
+            f"Hierbij ontvangt u onze offerte voor {omschrijving}. "
+            "Wij kijken ernaar uit u te begeleiden in uw AI-traject."
+        ),
+        "diensten":    omschrijving,
+        "totaal":      price or "op aanvraag",
+        "betaling":    "50% bij opdracht, 50% bij oplevering",
+        "afsluiting": (
+            "Wij hopen op een vlotte samenwerking en staan steeds klaar voor eventuele vragen. "
+            "Deze offerte is 30 dagen geldig."
+        ),
+    }
+
+
 def _gen_offerte(params: dict) -> str:
     company  = params.get("company", "")
     services = params.get("services", "")
     price    = params.get("price", "")
     context  = params.get("context") or params.get("topic", "")
 
+    # Flat JSON — no nested arrays so llama3 stays reliable
     prompt = (
-        "Maak een professionele offerte in het Nederlands voor:\n"
-        f"Bedrijf: {company or '(niet opgegeven)'}\n"
-        f"Diensten: {services or context or '(niet opgegeven)'}\n"
-        f"Budget/Prijs: {price or '(niet opgegeven)'}\n\n"
-        "Geef een JSON-object terug met EXACT deze structuur:\n"
-        '{\n'
-        '  "company": "Bedrijfsnaam",\n'
-        '  "contact": "Naam contactpersoon of lege string",\n'
-        '  "intro": "Introductietekst (2-3 zinnen)",\n'
-        '  "services": [\n'
-        '    {"omschrijving": "Dienst omschrijving", "prijs": 1000}\n'
-        '  ],\n'
-        '  "total": 1000,\n'
-        '  "geldigheid": "30 dagen",\n'
-        '  "betaling": "50% bij opdracht, 50% bij oplevering",\n'
-        '  "afsluiting": "Slottekst (2 zinnen)"\n'
-        "}\n"
-        "Antwoord UITSLUITEND met het JSON-object."
+        "Schrijf offerte-inhoud in het Nederlands voor:\n"
+        f"Bedrijf: {company or 'de klant'}\n"
+        f"Diensten: {services or context or 'AI-diensten'}\n"
+        f"Prijs: {price or 'op aanvraag'}\n\n"
+        "Geef ALLEEN dit JSON-object terug (geen uitleg, geen markdown):\n"
+        '{"company":"bedrijfsnaam","intro":"2-3 zinnen introductie",'
+        '"diensten":"opsomming van diensten als tekst, elke dienst op een nieuwe regel",'
+        '"totaal":"totaalbedrag als tekst bv EUR 1000",'
+        '"betaling":"betalingsvoorwaarden",'
+        '"afsluiting":"2 zinnen afsluiting"}'
     )
 
     print("  Offerte genereren met llama3...")
     data = _llm_json(prompt)
-    if not data:
-        return "[DocumentAgent] Kon offerte-inhoud niet genereren. Probeer opnieuw."
 
-    svc_list = data.get("services", [])
-    total    = data.get("total") or sum(s.get("prijs", 0) for s in svc_list)
-    nr       = _next_offerte_nr()
-    slug     = _slug(data.get("company") or company or "offerte")
-    base     = os.path.join(_DOCS_DIR, f"offerte_{slug}_{_today_str()}")
+    if not data:
+        print("  [DocumentAgent] llama3 JSON mislukt, gebruik fallback template.")
+        data = _offerte_fallback(company, services, price, context)
+        used_fallback = True
+    else:
+        # Ensure required keys exist
+        for key, default in [
+            ("company",    company or "Geachte klant"),
+            ("intro",      ""),
+            ("diensten",   services or context or ""),
+            ("totaal",     price or "op aanvraag"),
+            ("betaling",   "50% bij opdracht, 50% bij oplevering"),
+            ("afsluiting", ""),
+        ]:
+            if not data.get(key):
+                data[key] = default
+        used_fallback = False
+
+    nr   = _next_offerte_nr()
+    slug = _slug(data.get("company") or company or "offerte")
+    base = os.path.join(_DOCS_DIR, f"offerte_{slug}_{_today_str()}")
 
     # --- PDF ---
     pdf = _PDF()
     pdf.add_page()
     pdf.h1(f"Offerte {nr}")
 
-    pdf.kv("Aan",        data.get("company", ""))
-    if data.get("contact"):
-        pdf.kv("T.a.v.", data["contact"])
+    pdf.kv("Aan",        data["company"])
     pdf.kv("Datum",      date.today().strftime("%d/%m/%Y"))
     pdf.kv("Referentie", nr)
-    pdf.kv("Geldig tot", _valid_until(data.get("geldigheid", "30 dagen")))
+    pdf.kv("Geldig tot", (date.today() + timedelta(days=30)).strftime("%d/%m/%Y"))
     pdf.ln(4)
 
     pdf.h2("Inleiding")
-    pdf.body(data.get("intro", ""))
+    pdf.body(data["intro"])
 
-    pdf.h2("Diensten & Prijzen")
-    pdf.tbl_header(["Omschrijving", "Prijs (excl. BTW)"], [140, 50])
-    for i, svc in enumerate(svc_list):
-        pdf.tbl_row(
-            [svc.get("omschrijving", ""), f"EUR {svc.get('prijs', 0):,.0f}"],
-            [140, 50],
-            shade=(i % 2 == 1),
-        )
-    # Totaalregel
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.set_fill_color(*_LIGHT)
-    pdf.cell(140, 8, "Totaal (excl. BTW)", border=1, fill=True, ln=0)
-    pdf.cell(50, 8, f"EUR {total:,.0f}", border=1, fill=True, ln=1)
+    pdf.h2("Diensten")
+    pdf.body(data["diensten"])
 
-    pdf.ln(4)
-    pdf.h2("Betalingsvoorwaarden")
-    pdf.body(data.get("betaling", ""))
+    pdf.h2("Totaal & Betaling")
+    pdf.kv("Totaal (excl. BTW)", data["totaal"])
+    pdf.kv("Betalingsvoorwaarden", data["betaling"])
+
     pdf.h2("Afsluiting")
-    pdf.body(data.get("afsluiting", ""))
+    pdf.body(data["afsluiting"])
     pdf.body("\nMet vriendelijke groeten,\nHet Axon-team")
     pdf.output(base + ".pdf")
 
     # --- TXT ---
     txt_lines = [
         f"OFFERTE {nr}",
-        f"Datum     : {date.today().strftime('%d/%m/%Y')}",
-        f"Aan       : {data.get('company', '')}",
-        f"Referentie: {nr}",
+        f"Datum         : {date.today().strftime('%d/%m/%Y')}",
+        f"Aan           : {data['company']}",
+        f"Referentie    : {nr}",
         "",
-        data.get("intro", ""),
+        data["intro"],
         "",
         "DIENSTEN:",
-    ]
-    for svc in svc_list:
-        txt_lines.append(f"  - {svc.get('omschrijving', '')}  EUR {svc.get('prijs', 0):,.0f}")
-    txt_lines += [
-        f"  TOTAAL: EUR {total:,.0f}",
+        data["diensten"],
         "",
-        f"Betaling: {data.get('betaling', '')}",
+        f"Totaal        : {data['totaal']}",
+        f"Betaling      : {data['betaling']}",
         "",
-        data.get("afsluiting", ""),
+        data["afsluiting"],
         "",
         "Met vriendelijke groeten,",
         "Het Axon-team",
@@ -292,11 +307,12 @@ def _gen_offerte(params: dict) -> str:
     with open(base + ".txt", "w", encoding="utf-8") as f:
         f.write("\n".join(txt_lines))
 
+    source = " (fallback template)" if used_fallback else ""
     return (
-        f"Offerte aangemaakt:\n"
+        f"Offerte aangemaakt{source}:\n"
         f"  Referentie : {nr}\n"
-        f"  Bedrijf    : {data.get('company', '')}\n"
-        f"  Totaal     : EUR {total:,.0f}\n"
+        f"  Bedrijf    : {data['company']}\n"
+        f"  Totaal     : {data['totaal']}\n"
         f"  PDF        : {base}.pdf\n"
         f"  TXT        : {base}.txt"
     )
