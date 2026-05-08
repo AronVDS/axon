@@ -33,10 +33,15 @@ Beschikbare agents:
      - query  (str, optioneel): extra filter, bv. "vandaag" voor emails van vandaag, of een Gmail-zoekterm
      - limit  (int, optioneel, standaard 10): max aantal emails
 
-3. task_manager — Beheert taken en to-do's.
+3. task_manager — Beheert taken en to-do's opgeslagen in tasks.json.
    Parameters:
-     - action (str): "list", "add" of "complete"
-     - task   (str, optioneel): beschrijving van de taak
+     - action      (str): "add", "list", "complete", of "delete"
+     - task        (str, optioneel): taakomschrijving of naam (voor add/complete/delete); bij add zonder title wordt dit slim geparsed door llama3
+     - title       (str, optioneel): expliciete taaktitel (voor add, overschrijft smart parse)
+     - description (str, optioneel): extra toelichting (voor add)
+     - priority    (str, optioneel): "hoog", "normaal", of "laag" (voor add, standaard "normaal")
+     - due_date    (str, optioneel): vervaldatum als YYYY-MM-DD (voor add)
+     - filter      (str, optioneel): "all", "today", "hoog", "normaal", "laag", of "done" (voor list; standaard "all")
 
 4. document_agent — Maakt documenten of rapporten aan.
    Parameters:
@@ -48,7 +53,10 @@ Als de taak gaat over leads zoeken of emails sturen naar nieuwe bedrijven → le
 Als de taak gaat over inkomende emails lezen of samenvatten → email_manager met action="read".
 Als de taak gaat over inbox categoriseren of sorteren → email_manager met action="categorize".
 Als de taak gaat over emails beantwoorden → email_manager met action="reply"; voeg query="vandaag" toe als de taak "van vandaag" vermeldt.
-Als de taak gaat over taken, to-do's, planning → task_manager.
+Als de taak gaat over een taak aanmaken of toevoegen → task_manager met action="add" en task=<omschrijving>.
+Als de taak gaat over taken tonen of opvragen → task_manager met action="list"; zet filter="today" als "van vandaag" in de taak staat, filter="hoog" voor hoogprioritaire taken.
+Als de taak gaat over een taak afronden of als klaar markeren → task_manager met action="complete" en task=<naam>.
+Als de taak gaat over een taak verwijderen of wissen → task_manager met action="delete" en task=<naam>.
 Als de taak gaat over documenten, offertes, rapporten aanmaken → document_agent.
 
 Antwoord UITSLUITEND met een geldig JSON-object, geen markdown, geen uitleg erbuiten:
