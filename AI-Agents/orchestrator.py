@@ -43,10 +43,16 @@ Beschikbare agents:
      - due_date    (str, optioneel): vervaldatum als YYYY-MM-DD (voor add)
      - filter      (str, optioneel): "all", "today", "hoog", "normaal", "laag", of "done" (voor list; standaard "all")
 
-4. document_agent — Maakt documenten of rapporten aan.
+4. document_agent — Genereert PDF- en TXT-documenten met llama3. Slaat op in docs/.
    Parameters:
-     - document_type (str): bv. "offerte", "rapport", "verslag"
-     - topic         (str): onderwerp van het document
+     - document_type (str): "offerte", "weekrapport", "email", of "samenvatting"
+     - company       (str, optioneel): bedrijfsnaam (voor offerte en email)
+     - services      (str, optioneel): te offeren diensten (voor offerte)
+     - price         (str, optioneel): prijs of budget (voor offerte)
+     - recipient     (str, optioneel): ontvanger naam of bedrijf (voor email)
+     - text          (str, optioneel): te samenvatten tekst (voor samenvatting)
+     - context       (str, optioneel): extra context of beschrijving
+     - topic         (str, optioneel): algemeen onderwerp of taakomschrijving
 
 Kies altijd de meest passende agent op basis van de taak.
 Als de taak gaat over leads zoeken of emails sturen naar nieuwe bedrijven → lead_generator.
@@ -57,7 +63,10 @@ Als de taak gaat over een taak aanmaken of toevoegen → task_manager met action
 Als de taak gaat over taken tonen of opvragen → task_manager met action="list"; zet filter="today" als "van vandaag" in de taak staat, filter="hoog" voor hoogprioritaire taken.
 Als de taak gaat over een taak afronden of als klaar markeren → task_manager met action="complete" en task=<naam>.
 Als de taak gaat over een taak verwijderen of wissen → task_manager met action="delete" en task=<naam>.
-Als de taak gaat over documenten, offertes, rapporten aanmaken → document_agent.
+Als de taak gaat over een offerte of prijsopgave maken → document_agent met document_type="offerte"; extraheer company, services en price indien aanwezig.
+Als de taak gaat over een weekrapport of activiteitsrapport → document_agent met document_type="weekrapport".
+Als de taak gaat over een email opstellen of schrijven (niet beantwoorden van inbox) → document_agent met document_type="email"; zet recipient en context.
+Als de taak gaat over tekst samenvatten → document_agent met document_type="samenvatting" en text=<te samenvatten tekst>.
 
 Antwoord UITSLUITEND met een geldig JSON-object, geen markdown, geen uitleg erbuiten:
 {
