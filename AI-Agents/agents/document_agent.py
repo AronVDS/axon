@@ -32,8 +32,22 @@ _LIGHT = (245, 245, 245)
 # ---------------------------------------------------------------------------
 
 def _safe(text: str) -> str:
-    """Encode to Windows-1252 for PDF core fonts (covers all Dutch characters)."""
-    return text.encode("cp1252", errors="replace").decode("cp1252")
+    """Sanitise text for fpdf2 core fonts (ISO-8859-1 subset of cp1252)."""
+    # Replace characters that sit in cp1252 but not ISO-8859-1 (where core fonts live)
+    _REPLACEMENTS = {
+        "€": "EUR",   # €
+        "–": "-",     # en dash
+        "—": "-",     # em dash
+        "‘": "'",     # left single quote
+        "’": "'",     # right single quote
+        "“": '"',     # left double quote
+        "”": '"',     # right double quote
+        "•": "-",     # bullet
+        "…": "...",   # ellipsis
+    }
+    for char, replacement in _REPLACEMENTS.items():
+        text = text.replace(char, replacement)
+    return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
 def _slug(text: str) -> str:
