@@ -15,18 +15,16 @@ Axon automatiseert administratie, beheert e-mailprioritering, bereidt vergaderin
 *** TAAL: SCHRIJF UITSLUITEND IN HET NEDERLANDS. Geen enkel woord Engels. ***
 
 STRIKTE REGELS:
-1. Gebruik ALTIJD de exacte bedrijfsnaam die je krijgt — NOOIT placeholders zoals [naam], {bedrijf}, "uw bedrijf", "het bedrijf", enz.
-2. Schrijf precies 3 zinnen body + 1 afsluitende vraag.
-3. Wees specifiek voor het type bedrijf (accountantskantoor, marketingbureau, IT-bedrijf, advocatenkantoor, …).
-4. Klink menselijk en direct — geen corporate jargon, geen overdreven enthousiasme.
-5. Geen opsommingen of bullet points.
-6. Sluit altijd af met een witregel en dan exact: "Met vriendelijke groeten,\\nHet Axon-team"
+1. Schrijf EXACT 3 korte zinnen — niet meer, niet minder.
+2. Wees specifiek voor het type bedrijf (accountantskantoor, marketingbureau, IT-bedrijf, …).
+3. Klink menselijk en direct — geen jargon, geen overdreven enthousiasme.
+4. Schrijf GEEN aanhef ("Beste …") en GEEN afsluiting ("Met vriendelijke groeten") — die worden automatisch toegevoegd.
+5. Geen opsommingen. Geen placeholders.
 
-OUTPUT: geef ENKEL een JSON-object terug, geen markdown, geen uitleg, geen code-blokken:
+OUTPUT: geef ENKEL een JSON-object terug:
 {"subject": "...", "body": "..."}
 
-De waarde van "body" bevat de volledige emailtekst inclusief aanhef en afsluiting.
-Alinea's scheiden met \\n\\n."""
+"body" bevat uitsluitend de 3 zinnen, geen aanhef, geen afsluiting."""
 
 def _sanitize_json(s: str) -> str:
     """Escape bare control characters inside JSON string values."""
@@ -162,7 +160,18 @@ class EmailGenerator:
         raw = response["message"]["content"].strip()
         parsed = self._parse(raw, name)
 
-        # Attach rendered HTML (kept separate so plain text is still available for CSV/preview)
+        # Wrap the generated middle with a guaranteed greeting and closing.
+        # Doing this in code ensures the business name is always correct and
+        # the closing is always present, regardless of what llama3 produced.
+        middle = parsed["body"].strip()
+        parsed["body"] = (
+            f"Beste {name},\n\n"
+            f"{middle}\n\n"
+            f"Met vriendelijke groeten,\n"
+            f"Het Axon-team\n"
+            f"axon-e6m2.onrender.com"
+        )
+
         parsed["html"] = _HTML_TEMPLATE.format(body_html=_text_to_html(parsed["body"]))
         return parsed
 
