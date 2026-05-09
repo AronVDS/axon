@@ -83,6 +83,18 @@ AGENTS: dict = {
     "document_agent": DocumentAgent(),
 }
 
+# Fast routes bypass llama3 for common, predictable tasks
+_FAST_ROUTES: list[tuple[re.Pattern, dict]] = [
+    (
+        re.compile(r'\b(toon|bekijk|lijst|overzicht|wat zijn|laat zien)\b.{0,30}\btak(en)?\b', re.I),
+        {"agent": "task_manager", "parameters": {"action": "list"}, "reden": "snelle routing: taken opvragen"},
+    ),
+    (
+        re.compile(r'^Zoek nieuwe leads$', re.I),
+        {"agent": "lead_generator", "parameters": {"list_only": True, "limit": 3, "dry_run": True}, "reden": "snelle routing: dashboard leads kaart"},
+    ),
+]
+
 
 def _sanitize_json(s: str) -> str:
     """Replace bare control characters inside JSON string values with escape sequences.
@@ -116,33 +128,50 @@ def _sanitize_json(s: str) -> str:
 
 
 def route_task(task: str) -> dict:
-    """Ask llama3 which agent and parameters to use for the given Dutch task."""
+    """Route a Dutch task to the right agent, using fast pattern matching before llama3."""
+    for pattern, routing in _FAST_ROUTES:
+        if pattern.search(task.strip()):
+            print(f"  [Snel] {routing['reden']}", file=sys.stderr)
+            return routing
+
     response = ollama.chat(
         model="llama3",
         messages=[
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user",   "content": f"Taak: {task}"},
         ],
+        format="json",
     )
     raw = response["message"]["content"].strip()
 
-    # Strip markdown code fences that llama3 sometimes adds
-    cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
+    # Strip markdown code fences (```json ... ``` or ``` ... ```) and whitespace
+    cleaned = re.sub(r"^```(?:json)?\s*\n?", "", raw, flags=re.MULTILINE)
+    cleaned = re.sub(r"\n?\s*```\s*$", "", cleaned, flags=re.MULTILINE).strip()
 
     match = re.search(r"\{[\s\S]*\}", cleaned)
-    if match:
-        return json.loads(_sanitize_json(match.group()))
+    if not match:
+        print(f"[Orchestrator] Geen JSON gevonden in Ollama-output:\n{raw}", file=sys.stderr)
+        raise ValueError(
+            "Axon kon de AI-respons niet verwerken (geen JSON-object gevonden). "
+            "Probeer de opdracht opnieuw of formuleer ze anders."
+        )
 
-    raise ValueError(
-        f"llama3 gaf geen geldig JSON-object terug.\nAntwoord was:\n{raw}"
-    )
+    try:
+        return json.loads(_sanitize_json(match.group()))
+    except json.JSONDecodeError as exc:
+        print(f"[Orchestrator] JSONDecodeError: {exc}", file=sys.stderr)
+        print(f"[Orchestrator] Raw Ollama output:\n{raw}", file=sys.stderr)
+        raise ValueError(
+            "Axon kon de AI-respons niet verwerken (ongeldige JSON). "
+            "Probeer de opdracht opnieuw of formuleer ze anders."
+        ) from exc
 
 
 def run(task: str) -> str:
     print("\nAxon Orchestrator")
     print(f"  Taak : {task}\n")
 
-    print("Analyseren met llama3...")
+    print("Taak analyseren...")
     try:
         routing = route_task(task)
     except Exception as exc:
@@ -151,8 +180,13 @@ def run(task: str) -> str:
         return msg
 
     agent_name = routing.get("agent", "")
-    parameters = routing.get("parameters", {})
+    parameters = dict(routing.get("parameters", {}))  # copy — may be mutated below
     reden      = routing.get("reden", "")
+
+    # "stuur" / "verstuur" / "verzend" → live email mode
+    if agent_name == "lead_generator" and re.search(r'\b(stuur|verstuur|verzend)\b', task, re.I):
+        parameters["dry_run"] = False
+        parameters.pop("list_only", None)  # list_only makes no sense in live mode
 
     print(f"  Agent  : {agent_name}")
     print(f"  Params : {json.dumps(parameters, ensure_ascii=False)}")

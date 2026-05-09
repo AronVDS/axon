@@ -42,6 +42,7 @@ def _smart_parse(text: str) -> dict:
     today_str = date.today().isoformat()
     response  = ollama.chat(
         model="llama3",
+        format="json",
         messages=[{
             "role": "user",
             "content": (
@@ -122,13 +123,35 @@ def _find(tasks: list[dict], query: str) -> dict | None:
     return None
 
 
-def _fmt(t: dict, idx: int | None = None) -> str:
-    prefix  = f"{idx}. " if idx is not None else "   "
-    done    = "✓" if t["done"] else "○"
-    pri_sym = {"hoog": "▲", "normaal": "─", "laag": "▼"}.get(t["priority"], "─")
-    due     = f"  [{t['due_date']}]" if t.get("due_date") else ""
-    desc    = f"\n{prefix}   {t['description']}" if t.get("description") else ""
-    return f"{prefix}{done} {pri_sym} [{t['id']}] {t['title']}{due}{desc}"
+_MONTHS_NL = [
+    "januari", "februari", "maart", "april", "mei", "juni",
+    "juli", "augustus", "september", "oktober", "november", "december",
+]
+_DAYS_NL = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
+
+
+def _fmt_due(due_str: str) -> str:
+    """ISO date → friendly Dutch string: ', morgen' / ', dinsdag' / ', volgende week' / ', 16 mei'."""
+    try:
+        due   = date.fromisoformat(due_str)
+        delta = (due - date.today()).days
+    except ValueError:
+        return f", {due_str}"
+
+    if delta < 0:
+        n = abs(delta)
+        return f", {n} dag{'en' if n != 1 else ''} te laat"
+    if delta == 0:  return ", vandaag"
+    if delta == 1:  return ", morgen"
+    if delta <= 6:  return f", {_DAYS_NL[due.weekday()]}"
+    if delta <= 13: return ", volgende week"
+    return f", {due.day} {_MONTHS_NL[due.month - 1]}"
+
+
+def _fmt(t: dict) -> str:
+    due  = _fmt_due(t["due_date"]) if t.get("due_date") else ""
+    desc = f"\n  {t['description']}" if t.get("description") else ""
+    return f"• {t['title']}{due}{desc}"
 
 
 # ---------------------------------------------------------------------------
@@ -175,15 +198,8 @@ class TaskManagerAgent:
             parsed = _smart_parse(raw_text)
             task   = _add_task(**parsed)
 
-        due_line = f"  Vervaldatum : {task['due_date']}\n" if task["due_date"] else ""
-        return (
-            f"Taak aangemaakt:\n"
-            f"  ID          : {task['id']}\n"
-            f"  Titel       : {task['title']}\n"
-            f"  Prioriteit  : {task['priority']}\n"
-            f"{due_line}"
-            f"  Aangemaakt  : {task['created_at']}"
-        )
+        due_line = _fmt_due(task["due_date"]) if task.get("due_date") else ""
+        return f"✓ Taak aangemaakt: {task['title']}{due_line}."
 
     def _do_list(self, params: dict) -> str:
         tasks   = _load()
@@ -207,8 +223,8 @@ class TaskManagerAgent:
             return f"{header}\n  (geen)"
 
         lines = [header]
-        for i, t in enumerate(subset, 1):
-            lines.append(_fmt(t, i))
+        for t in subset:
+            lines.append(_fmt(t))
         return "\n".join(lines)
 
     def _do_complete(self, params: dict) -> str:
@@ -223,7 +239,7 @@ class TaskManagerAgent:
 
         target["done"] = True
         _save(tasks)
-        return f"Taak gemarkeerd als klaar:\n  [{target['id']}] {target['title']}"
+        return f"✓ {target['title']} — gemarkeerd als klaar."
 
     def _do_delete(self, params: dict) -> str:
         query = params.get("task") or params.get("query") or params.get("title", "")
@@ -237,4 +253,4 @@ class TaskManagerAgent:
 
         tasks.remove(target)
         _save(tasks)
-        return f"Taak verwijderd:\n  [{target['id']}] {target['title']}"
+        return f"✓ {target['title']} — verwijderd."

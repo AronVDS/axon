@@ -122,7 +122,7 @@ app.post('/api/orchestrate', (req, res) => {
     return res.status(400).json({ error: 'Taak vereist' });
   }
 
-  const TIMEOUT_MS = 120_000; // 2 min — LLM + agent calls can be slow
+  const TIMEOUT_MS = 90_000; // 90s — fast routes skip llama3; lead searches have limit=3
   const scriptPath = path.join(__dirname, 'AI-Agents', 'run_task.py');
   const agentsDir  = path.join(__dirname, 'AI-Agents');
 
@@ -144,7 +144,7 @@ app.post('/api/orchestrate', (req, res) => {
   };
 
   const timer = setTimeout(
-    () => finish(504, { error: 'Time-out: de taak duurde te lang (max 120s).' }),
+    () => finish(504, { error: 'Time-out: de taak duurde te lang (max 90s).' }),
     TIMEOUT_MS,
   );
 

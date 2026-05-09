@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Quiet CLI wrapper for the Axon orchestrator.
-Prints ONLY the final agent result to stdout; suppresses all internal logging.
+Prints ONLY the final agent result to stdout; all internal logging goes to stderr.
 Task is read from stdin.
 
 Usage:
@@ -9,30 +9,42 @@ Usage:
 """
 import sys
 import os
-import contextlib
-from io import StringIO
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Redirect orchestrator's progress prints to stderr so stdout stays clean.
+# Must happen before importing orchestrator, which sets up its print() calls.
+import builtins
+_real_print = builtins.print
+
+def _stderr_print(*args, **kwargs):
+    kwargs.setdefault("file", sys.stderr)
+    _real_print(*args, **kwargs)
+
+builtins.print = _stderr_print
 
 
 def main() -> None:
     task = sys.stdin.read().strip()
     if not task:
-        print("Geen taak opgegeven.", file=sys.stderr)
+        _real_print("Geen taak opgegeven.", file=sys.stderr)
         sys.exit(1)
 
     try:
         from orchestrator import run
 
-        # Suppress the progress/logging prints that orchestrator.run() emits;
-        # we only want the clean return value on stdout for the API caller.
-        buf = StringIO()
-        with contextlib.redirect_stdout(buf):
-            result = run(task)
+        result = run(task)
 
-        print(result, flush=True)
+        # Agents return plain Dutch strings — never JSON.
+        # Write directly to stdout without any parsing or wrapping.
+        output = result if isinstance(result, str) else str(result)
+        sys.stdout.write(output)
+        if not output.endswith("\n"):
+            sys.stdout.write("\n")
+        sys.stdout.flush()
+
     except Exception as exc:
-        print(f"[Fout] {exc}", file=sys.stderr)
+        _real_print(f"[Fout] {exc}", file=sys.stderr)
         sys.exit(1)
 
 

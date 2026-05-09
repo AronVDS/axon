@@ -17,14 +17,28 @@ class LeadGeneratorAgent:
     def run(self, params: dict) -> str:
         business_type = params.get("business_type", "bedrijf")
         location      = params.get("location", "Gent")
-        limit         = int(params.get("limit", 10))
+        limit         = int(params.get("limit", 3))
         dry_run       = bool(params.get("dry_run", True))
+        list_only     = bool(params.get("list_only", False))
 
-        from maps_client    import OSMClient
+        from maps_client import OSMClient
+        maps = OSMClient()
+
+        if list_only:
+            print(f"  Zoeken naar {business_type!r} in {location!r} — max {limit} (lijst, geen emails)")
+            businesses = maps.search_businesses(business_type, location, limit)
+            print(f"  Gevonden: {len(businesses)}")
+            if not businesses:
+                return f"Geen {business_type}en gevonden in {location}."
+            lines = [f"Gevonden leads in {location} ({len(businesses)}):"]
+            for biz in businesses:
+                addr = biz.get("address", "")
+                lines.append(f"• {biz['name']}" + (f" — {addr}" if addr else ""))
+            return "\n".join(lines)
+
         from email_generator import EmailGenerator
         from leads_manager  import LeadsManager
 
-        maps      = OSMClient()
         email_gen = EmailGenerator()
         leads_csv = os.path.join(_LEAD_GEN_DIR, "leads.csv")
         leads     = LeadsManager(leads_csv)
