@@ -19,7 +19,8 @@ STRIKTE REGELS:
 2. Wees specifiek voor het type bedrijf (accountantskantoor, marketingbureau, IT-bedrijf, …).
 3. Klink menselijk en direct — geen jargon, geen overdreven enthousiasme.
 4. Schrijf GEEN aanhef ("Beste …") en GEEN afsluiting ("Met vriendelijke groeten") — die worden automatisch toegevoegd.
-5. Geen opsommingen. Geen placeholders.
+5. Geen opsommingen. Geen placeholders. Geen markdown. Geen links.
+6. Schrijf in correct, professioneel Nederlands. Gebruik geen neologismen of verzonnen woorden.
 
 OUTPUT: geef ENKEL een JSON-object terug:
 {"subject": "...", "body": "..."}
@@ -175,7 +176,13 @@ class EmailGenerator:
             f"axon-e6m2.onrender.com"
         )
 
-        parsed["html"] = _HTML_TEMPLATE.format(body_html=_text_to_html(parsed["body"]))
+        # HTML version: replace the plain URL with a styled anchor tag
+        body_html = _text_to_html(parsed["body"]).replace(
+            "axon-e6m2.onrender.com",
+            '<a href="https://axon-e6m2.onrender.com"'
+            ' style="color:#4ade80;text-decoration:none;">axon-e6m2.onrender.com</a>',
+        )
+        parsed["html"] = _HTML_TEMPLATE.format(body_html=body_html)
         return parsed
 
     # ------------------------------------------------------------------
