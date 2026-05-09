@@ -8,6 +8,10 @@ const PORT = process.env.PORT || 3000;
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'axon2026';
 const WAITLIST_FILE = path.join(__dirname, 'data', 'waitlist.json');
+const PROFILE_FILE  = path.join(__dirname, 'data', 'profile.json');
+const TASKS_FILE    = path.join(__dirname, 'AI-Agents', 'tasks.json');
+const LEADS_FILE    = path.join(__dirname, 'AI-Agents', 'AILeadGenerator', 'leads.csv');
+const DOCS_DIR      = path.join(__dirname, 'AI-Agents', 'docs');
 
 fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
 if (!fs.existsSync(WAITLIST_FILE)) fs.writeFileSync(WAITLIST_FILE, '[]', 'utf8');
@@ -27,6 +31,10 @@ function writeWaitlist(data) {
   fs.writeFileSync(WAITLIST_FILE, JSON.stringify(data, null, 2), 'utf8');
 }
 
+function readProfile() {
+  try { return JSON.parse(fs.readFileSync(PROFILE_FILE, 'utf8')); } catch { return {}; }
+}
+
 function basicAuth(req, res, next) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Basic ')) {
@@ -40,6 +48,43 @@ function basicAuth(req, res, next) {
   }
   next();
 }
+
+// GET /api/profile — fetch saved onboarding profile
+app.get('/api/profile', (req, res) => res.json(readProfile()));
+
+// POST /api/profile — save onboarding profile
+app.post('/api/profile', (req, res) => {
+  const { name, sector, picks } = req.body;
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Naam vereist' });
+  }
+  const profile = {
+    name: name.trim(),
+    sector: sector || 'Andere',
+    picks: picks || {},
+    savedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(PROFILE_FILE, JSON.stringify(profile, null, 2), 'utf8');
+  res.json({ success: true });
+});
+
+// GET /api/stats — real counts from tasks.json, leads.csv, docs/
+app.get('/api/stats', (req, res) => {
+  let tasks = 0;
+  try { tasks = JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8')).length; } catch {}
+
+  let leads = 0;
+  try {
+    const csv = fs.readFileSync(LEADS_FILE, 'utf8');
+    const rows = csv.split('\n').filter(l => l.trim());
+    leads = Math.max(0, rows.length - 1); // minus header row
+  } catch {}
+
+  let docs = 0;
+  try { docs = fs.readdirSync(DOCS_DIR).filter(f => !f.startsWith('.')).length; } catch {}
+
+  res.json({ tasks, leads, docs });
+});
 
 // POST /api/waitlist — save a signup
 app.post('/api/waitlist', (req, res) => {

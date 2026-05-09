@@ -84,6 +84,37 @@ AGENTS: dict = {
 }
 
 
+def _sanitize_json(s: str) -> str:
+    """Replace bare control characters inside JSON string values with escape sequences.
+
+    llama3 sometimes outputs literal newlines/tabs inside string values, making
+    the JSON invalid.  This walks character-by-character and fixes them only while
+    inside a JSON string so we don't touch structural whitespace.
+    """
+    result = []
+    in_string = False
+    escaped = False
+    for ch in s:
+        if escaped:
+            result.append(ch)
+            escaped = False
+        elif ch == '\\' and in_string:
+            result.append(ch)
+            escaped = True
+        elif ch == '"':
+            result.append(ch)
+            in_string = not in_string
+        elif in_string and ch == '\n':
+            result.append('\\n')
+        elif in_string and ch == '\r':
+            result.append('\\r')
+        elif in_string and ch == '\t':
+            result.append('\\t')
+        else:
+            result.append(ch)
+    return ''.join(result)
+
+
 def route_task(task: str) -> dict:
     """Ask llama3 which agent and parameters to use for the given Dutch task."""
     response = ollama.chat(
@@ -100,7 +131,7 @@ def route_task(task: str) -> dict:
 
     match = re.search(r"\{[\s\S]*\}", cleaned)
     if match:
-        return json.loads(match.group())
+        return json.loads(_sanitize_json(match.group()))
 
     raise ValueError(
         f"llama3 gaf geen geldig JSON-object terug.\nAntwoord was:\n{raw}"

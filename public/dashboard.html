@@ -86,6 +86,19 @@ async function callOrchestrator(task) {
   return data.result;
 }
 
+function friendlyError(msg) {
+  if (!msg) return 'Er is een onbekende fout opgetreden.';
+  if (/ollama|connection refused|connectie/i.test(msg))
+    return 'Axon kan het AI-model (Ollama) niet bereiken. Zorg dat Ollama actief is en probeer opnieuw.';
+  if (/token|oauth|credential|gmail/i.test(msg))
+    return 'Gmail-toegang is niet ingesteld. Configureer je Gmail-credentials om emails te kunnen lezen.';
+  if (/FileNotFoundError|No such file/i.test(msg))
+    return 'Een benodigde configuratiefile ontbreekt. Controleer of de installatie volledig is.';
+  if (/time.?out|504/i.test(msg))
+    return 'De opdracht duurde te lang (max. 2 minuten). Probeer een kortere of eenvoudigere opdracht.';
+  return msg;
+}
+
 /* ── Spinner ── */
 const Spinner = ({ dark }) => (
   <span style={{
@@ -137,24 +150,29 @@ const IconBtn = ({ children, dot }) => (
   </button>
 );
 
-const TopBar = () => (
-  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 32px 24px' }}>
-    <Logo size={40} />
-    <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-      <LangToggle />
-      <IconBtn dot>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
-      </IconBtn>
-      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'6px 14px 6px 6px', border:'1px solid rgba(255,255,255,0.08)', borderRadius:999, background:'rgba(255,255,255,0.02)' }}>
-        <Avatar />
-        <div style={{ display:'flex', flexDirection:'column', lineHeight:1.15 }}>
-          <span style={{ fontSize:14, fontWeight:600 }}>Lucas Vermeiren</span>
-          <span style={{ fontSize:11.5, color:'#6b7180' }}>Brouwerij De Hooge</span>
+const TopBar = ({ profile = {} }) => {
+  const displayName = profile.name || 'Mijn bedrijf';
+  const words = displayName.trim().split(/\s+/);
+  const initials = (words.length >= 2 ? words[0][0] + words[words.length-1][0] : displayName.slice(0,2)).toUpperCase();
+  return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 32px 24px' }}>
+      <Logo size={40} />
+      <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+        <LangToggle />
+        <IconBtn dot>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
+        </IconBtn>
+        <div style={{ display:'flex', alignItems:'center', gap:12, padding:'6px 14px 6px 6px', border:'1px solid rgba(255,255,255,0.08)', borderRadius:999, background:'rgba(255,255,255,0.02)' }}>
+          <Avatar initials={initials} />
+          <div style={{ display:'flex', flexDirection:'column', lineHeight:1.15 }}>
+            <span style={{ fontSize:14, fontWeight:600 }}>{displayName}</span>
+            <span style={{ fontSize:11.5, color:'#6b7180' }}>{profile.sector || 'Axon gebruiker'}</span>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const Frame = ({ children, style = {} }) => (
   <div style={{
@@ -167,14 +185,14 @@ const Frame = ({ children, style = {} }) => (
 );
 
 /* ── Chat bubble ── */
-const Bubble = ({ side, children, small, error }) => (
+const Bubble = ({ side, children, small, error, initials = 'JZ' }) => (
   <div style={{ display:'flex', gap:12, alignItems:'flex-end', maxWidth:800, marginLeft:side==='me'?'auto':0, flexDirection:side==='me'?'row-reverse':'row', animation:'fadeIn .25s ease' }}>
     <div style={{
       width:34, height:34, borderRadius:'50%', display:'grid', placeItems:'center', fontWeight:800, fontSize:12, flexShrink:0,
       background: side==='ai' ? 'radial-gradient(circle at 30% 25%, rgba(74,222,128,0.5), transparent 60%), #0e1a14' : 'linear-gradient(135deg,#4ade80,#1f7a44)',
       color: side==='ai' ? GREEN : '#06120a',
       border: side==='ai' ? '1px solid rgba(74,222,128,0.4)' : 'none',
-    }}>{side==='ai' ? 'A' : 'LV'}</div>
+    }}>{side==='ai' ? 'A' : initials}</div>
     <div style={{
       padding:'12px 16px', borderRadius:18, fontSize:15, lineHeight:1.6,
       maxWidth: small ? 420 : 600, whiteSpace:'pre-wrap', wordBreak:'break-word',
@@ -205,12 +223,30 @@ const ThinkingBubble = () => (
 /* ═══════════════════════════════════════════════════
    SCREEN 1 — ONBOARDING WIZARD
 ═══════════════════════════════════════════════════ */
-function Onboarding() {
+function Onboarding({ profile = {}, onComplete }) {
   const [step, setStep] = useState(0);
-  const [name, setName] = useState('Brouwerij De Hooge');
-  const [sector, setSector] = useState('Andere');
-  const [picks, setPicks] = useState({ leads:true, email:true, offer:false, tasks:false });
+  const [name, setName] = useState(profile.name || '');
+  const [sector, setSector] = useState(profile.sector || 'Andere');
+  const [picks, setPicks] = useState(profile.picks || { leads:true, email:true, offer:false, tasks:false });
+  const [saving, setSaving] = useState(false);
   const total = 3;
+
+  const handleFinish = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, sector, picks }),
+      });
+      if (onComplete) onComplete({ name, sector, picks });
+    } catch {
+      if (onComplete) onComplete({ name, sector, picks });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const sectors = ['Restaurant','Bouw','Marketing','Retail','Andere'];
   const auto = [
@@ -227,7 +263,7 @@ function Onboarding() {
 
   return (
     <Frame>
-      <TopBar />
+      <TopBar profile={{ name, sector }} />
       <div style={{ padding:'0 32px', display:'flex', alignItems:'center', gap:18 }}>
         <span style={{ fontSize:12, color:'#6b7180', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'.12em', whiteSpace:'nowrap' }}>
           ONBOARDING · {String(step+1).padStart(2,'0')} / {String(total).padStart(2,'0')}
@@ -324,9 +360,13 @@ function Onboarding() {
         <span style={{ display:'flex', gap:8 }}>
           {[0,1,2].map(i => <span key={i} style={{ width:i===step?28:8, height:8, borderRadius:999, background:i<=step?GREEN:'rgba(255,255,255,0.1)', transition:'all .3s' }}/>)}
         </span>
-        <button onClick={() => setStep(s => Math.min(total-1, s+1))} style={{ padding:'14px 28px', borderRadius:12, background:GREEN, color:'#06120a', fontWeight:700, fontSize:15, border:'none', cursor:'pointer', boxShadow:'0 12px 28px -10px rgba(74,222,128,0.6)', display:'inline-flex', alignItems:'center', gap:10 }}>
-          {step === total-1 ? 'Klaar — start Axon' : 'Volgende stap'}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        <button
+          onClick={() => { if (step < total-1) { setStep(s => s+1); } else { handleFinish(); } }}
+          disabled={saving}
+          style={{ padding:'14px 28px', borderRadius:12, background:GREEN, color:'#06120a', fontWeight:700, fontSize:15, border:'none', cursor:saving?'wait':'pointer', boxShadow:'0 12px 28px -10px rgba(74,222,128,0.6)', display:'inline-flex', alignItems:'center', gap:10, opacity:saving?0.75:1 }}
+        >
+          {saving ? <><Spinner dark /> Opslaan…</> : step === total-1 ? 'Klaar — start Axon' : 'Volgende stap'}
+          {!saving && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M5 12h14M13 6l6 6-6 6"/></svg>}
         </button>
       </div>
     </Frame>
@@ -368,12 +408,20 @@ const ActionCard = ({ tone, icon, meta, metaLabel, title, desc, cta, onAction, l
   );
 };
 
-function Dashboard() {
+function Dashboard({ profile = {} }) {
+  const displayName = profile.name || 'daar';
+  const words = displayName.trim().split(/\s+/);
+  const initials = (words.length >= 2 ? words[0][0] + words[words.length-1][0] : displayName.slice(0,2)).toUpperCase();
+  const firstName = words[0];
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Goedemorgen' : hour < 18 ? 'Goedemiddag' : 'Goedenavond';
+
   const [bannerVisible, setBannerVisible] = useState(true);
-  const [loadingTask, setLoadingTask] = useState(null); // which CTA is busy
+  const [loadingTask, setLoadingTask] = useState(null);
   const [msg, setMsg] = useState('');
   const [messages, setMessages] = useState([
-    { side:'ai', text:'Hallo Lucas 👋 Ik ben verbonden met het systeem. Klik een actieknop of stel me een vraag.' },
+    { side:'ai', text:`Hallo${profile.name ? ' ' + firstName : ''} 👋 Ik ben verbonden met het systeem. Klik een actieknop of stel me een vraag.` },
   ]);
   const chatRef = useRef(null);
 
@@ -389,7 +437,7 @@ function Dashboard() {
       const result = await callOrchestrator(task);
       setMessages(m => [...m, { side:'ai', text: result }]);
     } catch (e) {
-      setMessages(m => [...m, { side:'ai', text: e.message, error: true }]);
+      setMessages(m => [...m, { side:'ai', text: friendlyError(e.message), error: true }]);
     } finally {
       setLoadingTask(null);
     }
@@ -405,7 +453,7 @@ function Dashboard() {
   const cards = [
     {
       tone:'green', cta:'Start zoekopdracht', meta:'14', metaLabel:'nieuwe deze week',
-      task:'Vind nieuwe klanten voor een Belgische brouwerij in West-Vlaanderen',
+      task:`Vind 5 nieuwe klanten voor ${profile.name || 'ons bedrijf'} in België`,
       icon:<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/><circle cx="11" cy="11" r="2.5" fill="currentColor" opacity=".25"/></svg>,
       title:'Vind nieuwe klanten',
       desc:'Ik zoek bedrijven in jouw regio die bij jou passen — en stel meteen een eerste mail op.',
@@ -435,7 +483,7 @@ function Dashboard() {
 
   return (
     <Frame>
-      <TopBar />
+      <TopBar profile={profile} />
 
       {bannerVisible && (
         <div style={{ padding:'0 32px' }}>
@@ -455,7 +503,7 @@ function Dashboard() {
 
       <div style={{ padding:'24px 32px 12px' }}>
         <h1 style={{ fontSize:34, fontWeight:700, letterSpacing:'-0.02em', margin:'8px 0 6px', lineHeight:1.1 }}>
-          Goedemiddag, Lucas. <span style={{ color:GREEN }}>Wat doen we vandaag?</span>
+          {greeting}, {firstName}. <span style={{ color:GREEN }}>Wat doen we vandaag?</span>
         </h1>
         <p style={{ margin:0, fontSize:15.5, color:'#a8aebb' }}>Klik een actieknop om Axon aan het werk te zetten, of stel een vraag in de chat.</p>
       </div>
@@ -483,7 +531,7 @@ function Dashboard() {
 
           <div ref={chatRef} style={{ padding:'20px 24px', display:'flex', flexDirection:'column', gap:14, maxHeight:340, overflowY:'auto' }}>
             {messages.map((m, i) => (
-              <Bubble key={i} side={m.side} error={m.error}>{m.text}</Bubble>
+              <Bubble key={i} side={m.side} error={m.error} initials={initials}>{m.text}</Bubble>
             ))}
             {loadingTask && <ThinkingBubble />}
           </div>
@@ -521,9 +569,14 @@ function Dashboard() {
 /* ═══════════════════════════════════════════════════
    SCREEN 3 — WEEKLY REPORT
 ═══════════════════════════════════════════════════ */
-function Report() {
+function Report({ profile = {} }) {
   const [loading, setLoading] = useState(false);
   const [resultMsg, setResultMsg] = useState(null);
+  const [stats, setStats] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/stats').then(r => r.json()).then(setStats).catch(() => {});
+  }, []);
 
   const handleDownload = async () => {
     setLoading(true);
@@ -540,7 +593,7 @@ function Report() {
 
   return (
     <Frame>
-      <TopBar />
+      <TopBar profile={profile} />
       <div style={{ padding:'0 40px 60px', maxWidth:960, margin:'0 auto' }}>
         <div style={{ padding:'8px 0 28px', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
           <span style={{ display:'inline-flex', gap:8, alignItems:'center', fontSize:12, fontWeight:700, color:GREEN, letterSpacing:'.06em', padding:'6px 12px', border:'1px solid rgba(74,222,128,0.25)', borderRadius:999, background:'rgba(74,222,128,0.06)' }}>
@@ -554,9 +607,9 @@ function Report() {
 
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, marginTop:24 }}>
           {[
-            { n:14, l:'Leads gevonden',        s:'+6 vs. vorige week' },
-            { n:42, l:'Emails beantwoord',     s:'gemiddeld 14 min responstijd' },
-            { n:8,  l:'Documenten aangemaakt', s:'5 offertes · 3 herinneringen' },
+            { n: stats ? stats.leads : '—', l:'Leads gevonden',        s: stats ? `${stats.leads} in totaal` : 'wordt geladen…' },
+            { n: stats ? stats.tasks : '—', l:'Taken in lijst',        s: stats ? `${stats.tasks} taken bijgehouden` : 'wordt geladen…' },
+            { n: stats ? stats.docs  : '—', l:'Documenten aangemaakt', s: stats ? `${stats.docs} bestanden in docs/` : 'wordt geladen…' },
           ].map((s,i) => (
             <div key={i} style={{ padding:'22px 22px 18px', borderRadius:18, ...glass }}>
               <div style={{ fontSize:13, color:'#a8aebb', fontWeight:600 }}>{s.l}</div>
@@ -642,7 +695,7 @@ function MobileScreen() {
       const result = await callOrchestrator(text);
       setMobileMessages(m => [...m, { side:'ai', text: result }]);
     } catch (e) {
-      setMobileMessages(m => [...m, { side:'ai', text: e.message, error: true }]);
+      setMobileMessages(m => [...m, { side:'ai', text: friendlyError(e.message), error: true }]);
     } finally {
       setMobileLoading(false);
     }
@@ -701,7 +754,7 @@ function MobileScreen() {
                     setMobileLoading(true);
                     callOrchestrator(c.task)
                       .then(r => setMobileMessages(m => [...m, { side:'ai', text: r }]))
-                      .catch(e => setMobileMessages(m => [...m, { side:'ai', text: e.message, error: true }]))
+                      .catch(e => setMobileMessages(m => [...m, { side:'ai', text: friendlyError(e.message), error: true }]))
                       .finally(() => setMobileLoading(false));
                   }}
                   disabled={mobileLoading}
@@ -779,7 +832,20 @@ const TABS = [
 
 function App() {
   const [active, setActive] = useState('dashboard');
+  const [profile, setProfile] = useState({});
+
+  useEffect(() => {
+    fetch('/api/profile').then(r => r.json()).then(p => { if (p && p.name) setProfile(p); }).catch(() => {});
+  }, []);
+
+  const handleOnboardingComplete = (profileData) => {
+    setProfile(profileData);
+    setActive('dashboard');
+  };
+
   const { Screen } = TABS.find(t => t.id === active);
+  const screenProps = { profile, onComplete: handleOnboardingComplete };
+
   return (
     <>
       <nav className="screen-nav">
@@ -794,7 +860,7 @@ function App() {
           Terug naar site
         </a>
       </nav>
-      <div className="screen-content"><Screen /></div>
+      <div className="screen-content"><Screen {...screenProps} /></div>
     </>
   );
 }
