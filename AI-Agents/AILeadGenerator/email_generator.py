@@ -143,6 +143,7 @@ class EmailGenerator:
         user_msg = (
             f"Schrijf een koude acquisitie-email voor:\n"
             f"- Bedrijfsnaam: {name}\n"
+            f"- Type bedrijf: {business.get('type', 'bedrijf')}\n"
             f"- Adres: {business['address']}\n"
         )
         if business.get("website"):
@@ -164,6 +165,8 @@ class EmailGenerator:
         # Doing this in code ensures the business name is always correct and
         # the closing is always present, regardless of what llama3 produced.
         middle = parsed["body"].strip()
+        if middle and middle[-1] not in ".!?":
+            middle += "."
         parsed["body"] = (
             f"Beste {name},\n\n"
             f"{middle}\n\n"

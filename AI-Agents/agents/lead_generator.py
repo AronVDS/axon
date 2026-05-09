@@ -59,6 +59,7 @@ class LeadGeneratorAgent:
 
         for biz in businesses:
             name = biz["name"]
+            biz["type"] = business_type  # give email generator sector context
 
             if leads.is_duplicate(name, biz["address"]):
                 print(f"  SKIP (al verwerkt): {name}")
