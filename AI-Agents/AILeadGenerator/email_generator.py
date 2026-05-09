@@ -5,52 +5,53 @@ import re
 import ollama
 
 # ---------------------------------------------------------------------------
-# Prompt
+# Sector lookup — the only llama3 call
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = """\
-Je schrijft koude acquisitie-emails namens Axon, een AI Chief of Staff voor Belgische KMO's.
-Axon automatiseert administratie, beheert e-mailprioritering, bereidt vergaderingen voor en volgt klanten op.
+_SECTOR_PROMPT = """\
+Geef de Nederlandse sectorbenaming voor het opgegeven bedrijfstype.
+Antwoord UITSLUITEND met een JSON-object: {"sector": "..."}
+Gebruik de meest gangbare Nederlandse term (één tot drie woorden, kleine letters).
+Voorbeelden: advocatenkantoor, restaurant, boekhoudkantoor, IT-bedrijf, kapsalon, marketingbureau."""
 
-*** TAAL: SCHRIJF UITSLUITEND IN HET NEDERLANDS. Geen enkel woord Engels. ***
 
-STRIKTE REGELS:
-1. Schrijf EXACT 3 korte zinnen — niet meer, niet minder.
-2. Wees specifiek voor het type bedrijf (accountantskantoor, marketingbureau, IT-bedrijf, …).
-3. Klink menselijk en direct — geen jargon, geen overdreven enthousiasme.
-4. Schrijf GEEN aanhef ("Beste …") en GEEN afsluiting ("Met vriendelijke groeten") — die worden automatisch toegevoegd.
-5. Geen opsommingen. Geen placeholders. Geen markdown. Geen links.
-6. Schrijf in correct, professioneel Nederlands. Gebruik geen neologismen of verzonnen woorden.
+def _get_sector(business_type: str, model: str) -> str:
+    """Ask llama3 for the correct Dutch sector label. Falls back to business_type."""
+    try:
+        response = ollama.chat(
+            model=model,
+            format="json",
+            messages=[{
+                "role": "user",
+                "content": f"Bedrijfstype: {business_type}",
+            }],
+            system=_SECTOR_PROMPT,
+        )
+        raw = response["message"]["content"].strip()
+        cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
+        data = json.loads(cleaned)
+        sector = str(data.get("sector", "")).strip()
+        return sector if sector else business_type
+    except Exception:
+        return business_type
 
-OUTPUT: geef ENKEL een JSON-object terug:
-{"subject": "...", "body": "..."}
 
-"body" bevat uitsluitend de 3 zinnen, geen aanhef, geen afsluiting."""
+# ---------------------------------------------------------------------------
+# Fixed email template
+# ---------------------------------------------------------------------------
 
-def _sanitize_json(s: str) -> str:
-    """Escape bare control characters inside JSON string values."""
-    result = []
-    in_string = False
-    escaped = False
-    for ch in s:
-        if escaped:
-            result.append(ch)
-            escaped = False
-        elif ch == '\\' and in_string:
-            result.append(ch)
-            escaped = True
-        elif ch == '"':
-            result.append(ch)
-            in_string = not in_string
-        elif in_string and ch == '\n':
-            result.append('\\n')
-        elif in_string and ch == '\r':
-            result.append('\\r')
-        elif in_string and ch == '\t':
-            result.append('\\t')
-        else:
-            result.append(ch)
-    return ''.join(result)
+_SUBJECT = "Axon — minder administratie, meer tijd voor {name}"
+
+_BODY = """\
+Beste {name},
+
+Als {sector} kent u de uitdaging van te veel tijd verliezen aan administratie, emails en opvolging. Axon is een AI Chief of Staff die dit voor u overneemt — zodat u zich kan focussen op wat echt telt.
+
+Heeft u 15 minuten om te zien hoe Axon {name} kan helpen?
+
+Met vriendelijke groeten,
+Het Axon-team
+axon-e6m2.onrender.com"""
 
 # ---------------------------------------------------------------------------
 # HTML template
@@ -139,79 +140,22 @@ class EmailGenerator:
         self.model = model
 
     def generate_cold_email(self, business: dict) -> dict:
-        name = business["name"]
+        name         = business["name"]
+        business_type = business.get("type", "bedrijf")
 
-        user_msg = (
-            f"Schrijf een koude acquisitie-email voor:\n"
-            f"- Bedrijfsnaam: {name}\n"
-            f"- Type bedrijf: {business.get('type', 'bedrijf')}\n"
-            f"- Adres: {business['address']}\n"
-        )
-        if business.get("website"):
-            user_msg += f"- Website: {business['website']}\n"
+        sector = _get_sector(business_type, self.model)
+        print(f"  Sector: {sector!r}")
 
-        response = ollama.chat(
-            model=self.model,
-            format="json",
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user",   "content": user_msg},
-            ],
-        )
+        plain_body = _BODY.format(name=name, sector=sector)
 
-        raw = response["message"]["content"].strip()
-        parsed = self._parse(raw, name)
-
-        # Wrap the generated middle with a guaranteed greeting and closing.
-        # Doing this in code ensures the business name is always correct and
-        # the closing is always present, regardless of what llama3 produced.
-        middle = parsed["body"].strip()
-        if middle and middle[-1] not in ".!?":
-            middle += "."
-        parsed["body"] = (
-            f"Beste {name},\n\n"
-            f"{middle}\n\n"
-            f"Met vriendelijke groeten,\n"
-            f"Het Axon-team\n"
-            f"axon-e6m2.onrender.com"
-        )
-
-        # HTML version: replace the plain URL with a styled anchor tag
-        body_html = _text_to_html(parsed["body"]).replace(
+        body_html = _text_to_html(plain_body).replace(
             "axon-e6m2.onrender.com",
             '<a href="https://axon-e6m2.onrender.com"'
             ' style="color:#4ade80;text-decoration:none;">axon-e6m2.onrender.com</a>',
         )
-        parsed["html"] = _HTML_TEMPLATE.format(body_html=body_html)
-        return parsed
 
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _parse(raw: str, company_name: str) -> dict:
-        # Strip markdown code fences that llama3 sometimes adds
-        cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
-
-        # 1. Try parsing the whole cleaned response (with control-char sanitisation)
-        try:
-            data = json.loads(_sanitize_json(cleaned))
-            if "subject" in data and "body" in data:
-                return {"subject": str(data["subject"]), "body": str(data["body"])}
-        except json.JSONDecodeError:
-            pass
-
-        # 2. Find the first {...} block (handles stray text before/after JSON)
-        match = re.search(r"\{[\s\S]*\}", cleaned)
-        if match:
-            try:
-                data = json.loads(_sanitize_json(match.group()))
-                if "subject" in data and "body" in data:
-                    return {"subject": str(data["subject"]), "body": str(data["body"])}
-            except json.JSONDecodeError:
-                pass
-
-        # 3. Last resort: treat entire response as plain body text
         return {
-            "subject": f"Axon — AI-ondersteuning voor {company_name}",
-            "body": cleaned,
+            "subject": _SUBJECT.format(name=name),
+            "body":    plain_body,
+            "html":    _HTML_TEMPLATE.format(body_html=body_html),
         }
